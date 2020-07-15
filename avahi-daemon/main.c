@@ -1657,7 +1657,14 @@ int main(int argc, char *argv[]) {
                     goto finish;
 #endif
         }
-
+        
+        /* We may get signalled to reload / dump data before signal
+         * handlers are set up (in run_server()) and instead get
+         * killed as these signals default to terminate the process.
+         * Instead ignore them until we are ready */
+        ignore_signal(SIGHUP);
+        ignore_signal(SIGUSR1);
+        
         if (daemon_pid_file_create() < 0) {
             avahi_log_error("Failed to create PID file: %s", strerror(errno));
 

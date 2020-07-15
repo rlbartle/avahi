@@ -88,7 +88,7 @@ void avahi_server_enumerate_aux_records(AvahiServer *s, AvahiInterface *i, Avahi
     assert(r);
     assert(callback);
 
-    /* Call the specified callback far all records referenced by the one specified in *r */
+    /* Call the specified callback for all records referenced by the one specified in *r */
 
     if (r->key->clazz == AVAHI_DNS_CLASS_IN) {
         if (r->key->type == AVAHI_DNS_TYPE_PTR) {
@@ -343,7 +343,7 @@ static int handle_conflict(AvahiServer *s, AvahiInterface *i, AvahiRecord *recor
     return valid;
 }
 
-static void append_aux_callback(AvahiServer *s, AvahiRecord *r, int flush_cache, void* userdata) {
+static void add_aux_callback(AvahiServer *s, AvahiRecord *r, int flush_cache, void* userdata) {
     int *unicast_response = userdata;
 
     assert(s);
@@ -353,11 +353,11 @@ static void append_aux_callback(AvahiServer *s, AvahiRecord *r, int flush_cache,
     avahi_record_list_push(s->record_list, r, flush_cache, *unicast_response, 1);
 }
 
-static void append_aux_records_to_list(AvahiServer *s, AvahiInterface *i, AvahiRecord *r, int unicast_response) {
+static void add_aux_records_to_list(AvahiServer *s, AvahiInterface *i, AvahiRecord *r, int unicast_response) {
     assert(s);
     assert(r);
 
-    avahi_server_enumerate_aux_records(s, i, r, append_aux_callback, &unicast_response);
+    avahi_server_enumerate_aux_records(s, i, r, add_aux_callback, &unicast_response);
 }
 
 void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsPacket *p, const AvahiAddress *a, uint16_t port, int legacy_unicast, int immediately) {
@@ -366,131 +366,115 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
     assert(i);
     assert(!legacy_unicast || (a && port > 0 && p));
 
-    if (legacy_unicast) {
-        AvahiDnsPacket *reply;
-        AvahiRecord *r;
+    int unicast_response, flush_cache, auxiliary, cq, aa, ttl;
+    AvahiDnsPacket *reply = NULL;
+    AvahiRecord *r;
 
-        if (!(reply = avahi_dns_packet_new_reply(p, 512 + AVAHI_DNS_PACKET_EXTRA_SIZE /* unicast DNS maximum packet size is 512 */ , 1, 1)))
-            return; /* OOM */
+    /* In case the query packet was truncated never respond
+    immediately, because known answer suppression records might be
+    contained in later packets */
+    int tc = p && !!(avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) & AVAHI_DNS_FLAG_TC);
 
-        while ((r = avahi_record_list_next(s->record_list, NULL, NULL, NULL))) {
+    while ((r = avahi_record_list_next(s->record_list, &flush_cache, &unicast_response, &auxiliary))) {
 
-            append_aux_records_to_list(s, i, r, 0);
+    	if (legacy_unicast) {
+    		flush_cache = 0;
+    		cq = 1;
+    		aa = 1;
+    		ttl = 10;
+    	} else {
+    		cq = 0;
+    		aa = 0;
+    		ttl = 0;
+    	}
+    	    	
+        int im = immediately;
+        
+        /* Only send the response immediately if it contains a
+         * unique entry AND it is not in reply to a truncated
+         * packet AND it is not an auxiliary record AND all other
+         * responses for this record are unique too. */
 
-            if (avahi_dns_packet_append_record(reply, r, 0, 10))
-                avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
-            else {
-                char *t = avahi_record_to_string(r);
-                avahi_log_warn("Record [%s] not fitting in legacy unicast packet, dropping.", t);
-                avahi_free(t);
-            }
+        if (flush_cache && !tc && !auxiliary && avahi_record_list_all_flush_cache(s->record_list))
+            im = 1;
 
-            avahi_record_unref(r);
-        }
+        if (legacy_unicast || (!avahi_interface_post_response(i, r, flush_cache, a, im) && unicast_response)) {
 
-        if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0)
-            avahi_interface_send_packet_unicast(i, reply, a, port);
+            /* Due to some reasons the record has not been scheduled.
+             * The client requested a unicast response in that
+             * case. Therefore we prepare such a response */
+             			
+            add_aux_records_to_list(s, i, r, unicast_response);
 
-        avahi_dns_packet_free(reply);
+            for (;;) {
 
-    } else {
-        int unicast_response, flush_cache, auxiliary;
-        AvahiDnsPacket *reply = NULL;
-        AvahiRecord *r;
+                if (!reply) {
+                    assert(p);
 
-        /* In case the query packet was truncated never respond
-        immediately, because known answer suppression records might be
-        contained in later packets */
-        int tc = p && !!(avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) & AVAHI_DNS_FLAG_TC);
+                    if (!(reply = avahi_dns_packet_new_reply(p, i->hardware->mtu, cq, aa)))
+                        break; /* OOM */
+                }
 
-        while ((r = avahi_record_list_next(s->record_list, &flush_cache, &unicast_response, &auxiliary))) {
+                if (avahi_dns_packet_append_record(reply, r, flush_cache, ttl)) {
 
-            int im = immediately;
+                    /* Appending this record succeeded, so incremeant
+                     * the specific header field, and return to the caller */
 
-            /* Only send the response immediately if it contains a
-             * unique entry AND it is not in reply to a truncated
-             * packet AND it is not an auxiliary record AND all other
-             * responses for this record are unique too. */
+                    avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
+                    break;
+                }
 
-            if (flush_cache && !tc && !auxiliary && avahi_record_list_all_flush_cache(s->record_list))
-                im = 1;
+                if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) == 0) {
+                    size_t size;
 
-            if (!avahi_interface_post_response(i, r, flush_cache, a, im) && unicast_response) {
+                    /* The record is too large for one packet, so create a larger packet */
 
-                /* Due to some reasons the record has not been scheduled.
-                 * The client requested an unicast response in that
-                 * case. Therefore we prepare such a response */
+                    avahi_dns_packet_free(reply);
+                    size = avahi_record_get_estimate_size(r) + AVAHI_DNS_PACKET_HEADER_SIZE;
 
-                append_aux_records_to_list(s, i, r, unicast_response);
+                    if (!(reply = avahi_dns_packet_new_reply(p, size + AVAHI_DNS_PACKET_EXTRA_SIZE, cq, 1)))
+                        break; /* OOM */
 
-                for (;;) {
-
-                    if (!reply) {
-                        assert(p);
-
-                        if (!(reply = avahi_dns_packet_new_reply(p, i->hardware->mtu, 0, 0)))
-                            break; /* OOM */
-                    }
-
-                    if (avahi_dns_packet_append_record(reply, r, flush_cache, 0)) {
+                    if (avahi_dns_packet_append_record(reply, r, flush_cache, ttl)) {
 
                         /* Appending this record succeeded, so incremeant
                          * the specific header field, and return to the caller */
 
                         avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
                         break;
-                    }
 
-                    if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) == 0) {
-                        size_t size;
+                    }  else {
 
-                        /* The record is too large for one packet, so create a larger packet */
+                        /* We completely fucked up, there's
+                         * nothing we can do. The RR just doesn't
+                         * fit in. Let's ignore it. */
 
+                        char *t;
                         avahi_dns_packet_free(reply);
-                        size = avahi_record_get_estimate_size(r) + AVAHI_DNS_PACKET_HEADER_SIZE;
-
-                        if (!(reply = avahi_dns_packet_new_reply(p, size + AVAHI_DNS_PACKET_EXTRA_SIZE, 0, 1)))
-                            break; /* OOM */
-
-                        if (avahi_dns_packet_append_record(reply, r, flush_cache, 0)) {
-
-                            /* Appending this record succeeded, so incremeant
-                             * the specific header field, and return to the caller */
-
-                            avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
-                            break;
-
-                        }  else {
-
-                            /* We completely fucked up, there's
-                             * nothing we can do. The RR just doesn't
-                             * fit in. Let's ignore it. */
-
-                            char *t;
-                            avahi_dns_packet_free(reply);
-                            reply = NULL;
-                            t = avahi_record_to_string(r);
-                            avahi_log_warn("Record [%s] too large, doesn't fit in any packet!", t);
-                            avahi_free(t);
-                            break;
-                        }
+                        reply = NULL;
+                        t = avahi_record_to_string(r);
+                        avahi_log_warn("Record [%s] too large, doesn't fit in any packet!", t);
+                        avahi_free(t);
+                        break;
                     }
-
-                    /* Appending the record didn't succeeed, so let's send this packet, and create a new one */
-                    avahi_interface_send_packet_unicast(i, reply, a, port);
-                    avahi_dns_packet_free(reply);
-                    reply = NULL;
                 }
-            }
-
-            avahi_record_unref(r);
-        }
-
-        if (reply) {
-            if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0)
+                
+                /* Appending the record didn't succeeed, so mark the packet as truncated, and send this packet.  Create a new one to continue with the rest of the responses */
+                
+                avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS, avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_TC);
                 avahi_interface_send_packet_unicast(i, reply, a, port);
-            avahi_dns_packet_free(reply);
+                avahi_dns_packet_free(reply);
+                reply = NULL;
+            }
         }
+
+        avahi_record_unref(r);
+    }
+
+    if (reply) {
+        if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0)
+            avahi_interface_send_packet_unicast(i, reply, a, port);
+        avahi_dns_packet_free(reply);
     }
 
     avahi_record_list_flush(s->record_list);
