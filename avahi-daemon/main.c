@@ -22,6 +22,10 @@
 #endif
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <getopt.h>
 #include <string.h>
 #include <signal.h>
@@ -1152,8 +1156,14 @@ static int run_server(DaemonConfig *c) {
 
     ignore_signal(SIGPIPE);
 
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    //Not actual NSS support, but the only usage of this variable is to check whether .local domain names
+    //can be resolved. Value is treated as a boolean, so -1 evaluates as true.
+    nss_support = -1;
+#else
     if (!(nss_support = avahi_nss_support()))
         avahi_log_warn("WARNING: No NSS support for mDNS detected, consider installing nss-mdns!");
+#endif
 
     if (!(simple_poll_api = avahi_simple_poll_new())) {
         avahi_log_error("Failed to create main loop object.");
@@ -1207,11 +1217,16 @@ static int run_server(DaemonConfig *c) {
         avahi_log_info("Successfully called chroot().");
         chdir("/");
 
-        if (avahi_caps_drop_all() < 0) {
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+        if (avahi_caps_reduce3() < 0)
+            goto finish;
+#else
+		if (avahi_caps_drop_all() < 0) {
             avahi_log_error("Failed to drop capabilities.");
             goto finish;
         }
         avahi_log_info("Successfully dropped remaining capabilities.");
+#endif
     }
 
 #endif

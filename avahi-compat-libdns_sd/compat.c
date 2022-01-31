@@ -23,6 +23,10 @@
 
 #include <pthread.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>

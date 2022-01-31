@@ -27,6 +27,10 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/domain.h>
 #include <avahi-common/malloc.h>

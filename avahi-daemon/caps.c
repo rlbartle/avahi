@@ -23,6 +23,10 @@
 
 #include <sys/types.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <errno.h>
 #include <string.h>
 #include <sys/capability.h>
@@ -35,7 +39,11 @@
 int avahi_caps_reduce(void) {
     int ret = 0;
     cap_t caps;
-    static cap_value_t cap_values[] = { CAP_SYS_CHROOT, CAP_SETUID, CAP_SETGID };
+    static cap_value_t cap_values[] = {
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+            CAP_NET_BIND_SERVICE,
+#endif
+            CAP_SYS_CHROOT, CAP_SETUID, CAP_SETGID };
 
     /* Let's reduce our caps to the minimum set and tell Linux to keep
      * them across setuid(). This is called before we drop
@@ -45,8 +53,8 @@ int avahi_caps_reduce(void) {
     assert(caps);
     cap_clear(caps);
 
-    cap_set_flag(caps, CAP_EFFECTIVE, 3, cap_values, CAP_SET);
-    cap_set_flag(caps, CAP_PERMITTED, 3, cap_values, CAP_SET);
+    cap_set_flag(caps, CAP_EFFECTIVE, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
+    cap_set_flag(caps, CAP_PERMITTED, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
 
     if (cap_set_proc(caps) < 0) {
         avahi_log_error("cap_set_proc() failed: %s", strerror(errno));
@@ -66,7 +74,11 @@ int avahi_caps_reduce(void) {
 int avahi_caps_reduce2(void) {
     int ret = 0;
     cap_t caps;
-    static cap_value_t cap_values[] = { CAP_SYS_CHROOT };
+    static cap_value_t cap_values[] = {
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+            CAP_NET_BIND_SERVICE,
+#endif
+            CAP_SYS_CHROOT };
 
     /* Reduce our caps to the bare minimum and tell Linux not to keep
      * them across setuid(). This is called after we drop
@@ -83,8 +95,8 @@ int avahi_caps_reduce2(void) {
     cap_clear(caps);
 
     /* setuid() zeroed our effective caps, let's get them back */
-    cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_values, CAP_SET);
-    cap_set_flag(caps, CAP_PERMITTED, 1, cap_values, CAP_SET);
+    cap_set_flag(caps, CAP_EFFECTIVE, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
+    cap_set_flag(caps, CAP_PERMITTED, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
 
     if (cap_set_proc(caps) < 0) {
         avahi_log_error("cap_set_proc() failed: %s", strerror(errno));
@@ -94,6 +106,33 @@ int avahi_caps_reduce2(void) {
 
     return ret;
 }
+
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+
+int avahi_caps_reduce3(void) {
+    int ret = 0;
+    cap_t caps;
+    static cap_value_t cap_values[] = { CAP_NET_BIND_SERVICE };
+
+    /* Reduce our caps to the bare minimum. This is called instead of
+     * avahi_caps_drop_all(). */
+
+    caps = cap_init();
+    assert(caps);
+    cap_clear(caps);
+
+    cap_set_flag(caps, CAP_EFFECTIVE, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
+    cap_set_flag(caps, CAP_PERMITTED, sizeof(cap_values) / sizeof(cap_value_t), cap_values, CAP_SET);
+
+    if (cap_set_proc(caps) < 0) {
+        avahi_log_error("cap_set_proc() failed: %s", strerror(errno));
+        ret = -1;
+    }
+    cap_free(caps);
+
+    return ret;
+}
+#endif
 
 int avahi_caps_drop_all(void) {
     cap_t caps;

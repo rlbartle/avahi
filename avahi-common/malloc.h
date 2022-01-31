@@ -26,6 +26,10 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/cdecl.h>
 #include <avahi-common/gccmacro.h>

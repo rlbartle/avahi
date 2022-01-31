@@ -22,6 +22,9 @@
 
 int avahi_caps_reduce(void);
 int avahi_caps_reduce2(void);
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+int avahi_caps_reduce3(void);
+#endif
 int avahi_caps_drop_all(void);
 
 #endif

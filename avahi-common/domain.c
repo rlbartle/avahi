@@ -30,6 +30,10 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include "domain.h"
 #include "malloc.h"

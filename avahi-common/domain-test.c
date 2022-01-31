@@ -24,6 +24,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include "domain.h"
 #include "malloc.h"
@@ -66,7 +70,7 @@ int main(AVAHI_GCC_UNUSED int argc, AVAHI_GCC_UNUSED char *argv[]) {
     printf("name: <>; type: <%s>; domain <%s>\n", type, domain);
 
 
-    p = "--:---\\\\\\123\\065_äöü\\064\\.\\\\sjöödfhh.sdfjhskjdf";
+    p = "--:---\\\\\\123\\065_ï¿½ï¿½ï¿½\\064\\.\\\\sjï¿½ï¿½dfhh.sdfjhskjdf";
     printf("unescaped: <%s>, rest: %s\n", avahi_unescape_label(&p, t, sizeof(t)), p);
 
     size = sizeof(r);

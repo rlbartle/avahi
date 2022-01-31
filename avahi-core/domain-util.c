@@ -23,6 +23,10 @@
 
 #include <stdlib.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <string.h>
 #include <unistd.h>
 #include <ctype.h>

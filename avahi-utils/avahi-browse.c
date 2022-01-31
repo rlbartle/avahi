@@ -25,6 +25,10 @@
 #include <stdio.h>
 #include <getopt.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>

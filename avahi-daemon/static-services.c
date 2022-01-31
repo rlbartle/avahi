@@ -655,7 +655,10 @@ static void XMLCALL xml_end(void *data, AVAHI_GCC_UNUSED const char *el) {
                 u->service->txt_records = avahi_string_list_add_anonymous(u->service->txt_records, key_len + 1 + value_buf_len);
                 memcpy(u->service->txt_records->text, u->txt_key, key_len);
                 u->service->txt_records->text[key_len] = '=';
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
                 memcpy(u->service->txt_records->text + key_len + 1, value_buf, value_buf_len);
+#pragma GCC diagnostic pop
                 avahi_free(u->txt_key);
                 u->txt_key = NULL;
                 avahi_free(free_value_buf);

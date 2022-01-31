@@ -22,6 +22,10 @@
 #endif
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/strlst.h>
 #include <avahi-common/malloc.h>

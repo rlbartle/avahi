@@ -27,6 +27,10 @@
 #include <arpa/inet.h>
 #include <string.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include "addr-util.h"
 
@@ -39,9 +43,9 @@ AvahiAddress *avahi_address_from_sockaddr(const struct sockaddr* sa, AvahiAddres
     ret_addr->proto = avahi_af_to_proto(sa->sa_family);
 
     if (sa->sa_family == AF_INET)
-        memcpy(&ret_addr->data.ipv4, &((const struct sockaddr_in*) sa)->sin_addr, sizeof(ret_addr->data.ipv4));
+        memcpy(&ret_addr->data.ipv4, &((const struct sockaddr_in*)(void*) sa)->sin_addr, sizeof(ret_addr->data.ipv4));
     else
-        memcpy(&ret_addr->data.ipv6, &((const struct sockaddr_in6*) sa)->sin6_addr, sizeof(ret_addr->data.ipv6));
+        memcpy(&ret_addr->data.ipv6, &((const struct sockaddr_in6*)(void*) sa)->sin6_addr, sizeof(ret_addr->data.ipv6));
 
     return ret_addr;
 }
@@ -52,9 +56,9 @@ uint16_t avahi_port_from_sockaddr(const struct sockaddr* sa) {
     assert(sa->sa_family == AF_INET || sa->sa_family == AF_INET6);
 
     if (sa->sa_family == AF_INET)
-        return ntohs(((const struct sockaddr_in*) sa)->sin_port);
+        return ntohs(((const struct sockaddr_in*)(void*) sa)->sin_port);
     else
-        return ntohs(((const struct sockaddr_in6*) sa)->sin6_port);
+        return ntohs(((const struct sockaddr_in6*)(void*) sa)->sin6_port);
 }
 
 int avahi_address_is_ipv4_in_ipv6(const AvahiAddress *a) {

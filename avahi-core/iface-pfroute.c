@@ -77,12 +77,15 @@ static void rtm_info(struct rt_msghdr *rtm, AvahiInterfaceMonitor *m)
     if (!(hw = avahi_hw_interface_new(m, (AvahiIfIndex) ifm->ifm_index)))
       return; /* OOM */
 
-  hw->flags_ok =
-    (ifm->ifm_flags & IFF_UP) &&
-    (!m->server->config.use_iff_running || (ifm->ifm_flags & IFF_RUNNING)) &&
-    ((ifm->ifm_flags & IFF_LOOPBACK) ||
-     (ifm->ifm_flags & IFF_MULTICAST)) &&
-    (m->server->config.allow_point_to_point || !(ifm->ifm_flags & IFF_POINTOPOINT));
+  hw->flags_up_running = (ifm->ifm_flags & IFF_UP) &&
+    (!m->server->config.use_iff_running || (ifm->ifm_flags & IFF_RUNNING));
+  hw->flags_loopback = !!(ifm->ifm_flags & IFF_LOOPBACK);
+  hw->flags_multicast = !!(ifm->ifm_flags & IFF_MULTICAST);
+  hw->flags_point_to_point = !!(ifm->ifm_flags & IFF_POINTOPOINT);
+  if (!hw->flags_up_running ||
+    (hw->flags_point_to_point && !m->server->config.allow_point_to_point) ||
+    (!hw->flags_loopback && !hw->flags_multicast && !hw->flags_point_to_point))
+    hw->flags_ok = 0;
 
   avahi_free(hw->name);
   hw->name = avahi_strndup(sdl->sdl_data, sdl->sdl_nlen);
@@ -424,12 +427,16 @@ static void if_add_interface(struct lifreq *lifreq, AvahiInterfaceMonitor *m, in
         if (!(hw = avahi_hw_interface_new(m, (AvahiIfIndex) index)))
             return; /* OOM */
 
-        hw->flags_ok =
-            (flags & IFF_UP) &&
-            (!m->server->config.use_iff_running || (flags & IFF_RUNNING)) &&
-            ((flags & IFF_LOOPBACK) ||
-            (flags & IFF_MULTICAST)) &&
-            (m->server->config.allow_point_to_point || !(flags & IFF_POINTOPOINT));
+        hw->flags_up_running = (flags & IFF_UP) &&
+                (!m->server->config.use_iff_running || (flags & IFF_RUNNING));
+		hw->flags_loopback = !!(flags & IFF_LOOPBACK);
+		hw->flags_multicast = !!(flags & IFF_MULTICAST);
+		hw->flags_point_to_point = !!(flags & IFF_POINTOPOINT);
+		if (!hw->flags_up_running ||
+				(hw->flags_point_to_point && !m->server->config.allow_point_to_point) ||
+				(!hw->flags_loopback && !hw->flags_multicast && !hw->flags_point_to_point))
+			 hw->flags_ok = 0;
+
         hw->name = avahi_strdup(lifreq->lifr_name);
         hw->mtu = mtu;
         /* TODO get mac address */

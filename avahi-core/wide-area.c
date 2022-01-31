@@ -246,7 +246,7 @@ AvahiWideAreaLookup *avahi_wide_area_lookup_new(
 
     if (send_to_dns_server(l, l->packet) < 0) {
         avahi_log_error(__FILE__": Failed to send packet.");
-        avahi_dns_packet_free(l->packet);
+        avahi_dns_packet_unref(l->packet);
         avahi_key_unref(l->key);
         if (l->cname_key)
             avahi_key_unref(l->cname_key);
@@ -285,7 +285,7 @@ static void lookup_destroy(AvahiWideAreaLookup *l) {
     AVAHI_LLIST_REMOVE(AvahiWideAreaLookup, lookups, l->engine->lookups, l);
 
     avahi_hashmap_remove(l->engine->lookups_by_id, &l->id);
-    avahi_dns_packet_free(l->packet);
+    avahi_dns_packet_unref(l->packet);
 
     if (l->key)
         avahi_key_unref(l->key);
@@ -563,7 +563,7 @@ static void socket_event(AVAHI_GCC_UNUSED AvahiWatch *w, int fd, AVAHI_GCC_UNUSE
 
     if (p) {
         handle_packet(e, p);
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
     }
 }
 
@@ -577,8 +577,8 @@ AvahiWideAreaLookupEngine *avahi_wide_area_engine_new(AvahiServer *s) {
     e->cleanup_dead = 0;
 
     /* Create sockets */
-    e->fd_ipv4 = s->config.use_ipv4 ? avahi_open_unicast_socket_ipv4() : -1;
-    e->fd_ipv6 = s->config.use_ipv6 ? avahi_open_unicast_socket_ipv6() : -1;
+    e->fd_ipv4 = s->config.use_ipv4 ? avahi_open_unicast_socket_ipv4(0) : -1;
+    e->fd_ipv6 = s->config.use_ipv6 ? avahi_open_unicast_socket_ipv6(0) : -1;
 
     if (e->fd_ipv4 < 0 && e->fd_ipv6 < 0) {
         avahi_log_error(__FILE__": Failed to create wide area sockets: %s", strerror(errno));

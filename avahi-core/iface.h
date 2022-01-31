@@ -76,7 +76,15 @@ struct AvahiHwInterface {
 
     char *name;
     AvahiIfIndex index;
-    int flags_ok;
+    union {
+        int flags_ok;
+        struct {
+            uint8_t flags_up_running;
+            uint8_t flags_loopback;
+            uint8_t flags_multicast;
+            uint8_t flags_point_to_point;
+        };
+    };
 
     unsigned mtu;
 

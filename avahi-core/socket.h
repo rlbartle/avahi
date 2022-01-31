@@ -32,8 +32,8 @@
 int avahi_open_socket_ipv4(int no_reuse);
 int avahi_open_socket_ipv6(int no_reuse);
 
-int avahi_open_unicast_socket_ipv4(void);
-int avahi_open_unicast_socket_ipv6(void);
+int avahi_open_unicast_socket_ipv4(int use_dns_port);
+int avahi_open_unicast_socket_ipv6(int use_dns_port);
 
 int avahi_send_dns_packet_ipv4(int fd, AvahiIfIndex iface, AvahiDnsPacket *p, const AvahiIPv4Address *src_address, const AvahiIPv4Address *dst_address, uint16_t dst_port);
 int avahi_send_dns_packet_ipv6(int fd, AvahiIfIndex iface, AvahiDnsPacket *p, const AvahiIPv6Address *src_address, const AvahiIPv6Address *dst_address, uint16_t dst_port);

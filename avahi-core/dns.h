@@ -30,6 +30,7 @@
 #define AVAHI_DNS_PACKET_SIZE_MAX (AVAHI_DNS_PACKET_HEADER_SIZE + 256 + 2 + 2 + 4 + 2 + AVAHI_DNS_RDATA_MAX)
 
 typedef struct AvahiDnsPacket {
+    int ref;           /**< Reference counter */
     size_t size, rindex, max_size, res_size;
     AvahiHashmap *name_table; /* for name compression */
     uint8_t *data;
@@ -43,7 +44,8 @@ AvahiDnsPacket* avahi_dns_packet_new_response(unsigned mtu, int aa);
 
 AvahiDnsPacket* avahi_dns_packet_new_reply(AvahiDnsPacket* p, unsigned mtu, int copy_queries, int aa);
 
-void avahi_dns_packet_free(AvahiDnsPacket *p);
+AvahiDnsPacket *avahi_dns_packet_ref(AvahiDnsPacket *p);
+void avahi_dns_packet_unref(AvahiDnsPacket *p);
 void avahi_dns_packet_set_field(AvahiDnsPacket *p, unsigned idx, uint16_t v);
 uint16_t avahi_dns_packet_get_field(AvahiDnsPacket *p, unsigned idx);
 void avahi_dns_packet_inc_field(AvahiDnsPacket *p, unsigned idx);
@@ -62,7 +64,7 @@ uint8_t* avahi_dns_packet_append_string(AvahiDnsPacket *p, const char *s);
 
 int avahi_dns_packet_is_query(AvahiDnsPacket *p);
 int avahi_dns_packet_check_valid(AvahiDnsPacket *p);
-int avahi_dns_packet_check_valid_multicast(AvahiDnsPacket *p);
+int avahi_dns_packet_check_valid_response(AvahiDnsPacket *p);
 
 int avahi_dns_packet_consume_uint16(AvahiDnsPacket *p, uint16_t *ret_v);
 int avahi_dns_packet_consume_uint32(AvahiDnsPacket *p, uint32_t *ret_v);

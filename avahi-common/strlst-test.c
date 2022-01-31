@@ -23,6 +23,10 @@
 
 #include <stdio.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include "strlst.h"
 #include "malloc.h"

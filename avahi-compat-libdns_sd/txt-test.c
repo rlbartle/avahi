@@ -23,6 +23,10 @@
 
 #include <sys/types.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <stdio.h>
 
 #include <avahi-common/gccmacro.h>

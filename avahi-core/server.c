@@ -31,6 +31,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <stdlib.h>
 
 #include <avahi-common/domain.h>
@@ -377,17 +381,17 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
 
     while ((r = avahi_record_list_next(s->record_list, &flush_cache, &unicast_response, &auxiliary))) {
 
-    	if (legacy_unicast) {
-    		flush_cache = 0;
-    		cq = 1;
-    		aa = 1;
-    		ttl = 10;
-    	} else {
-    		cq = 0;
-    		aa = 0;
-    		ttl = 0;
-    	}
-    	    	
+        if (legacy_unicast) {
+            flush_cache = 0;
+            cq = 1;
+            aa = 1;
+            ttl = 10;
+        } else {
+            cq = 0;
+            aa = 0;
+            ttl = 0;
+        }
+
         int im = immediately;
         
         /* Only send the response immediately if it contains a
@@ -403,7 +407,7 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
             /* Due to some reasons the record has not been scheduled.
              * The client requested a unicast response in that
              * case. Therefore we prepare such a response */
-             			
+
             add_aux_records_to_list(s, i, r, unicast_response);
 
             for (;;) {
@@ -429,7 +433,7 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
 
                     /* The record is too large for one packet, so create a larger packet */
 
-                    avahi_dns_packet_free(reply);
+                    avahi_dns_packet_unref(reply);
                     size = avahi_record_get_estimate_size(r) + AVAHI_DNS_PACKET_HEADER_SIZE;
 
                     if (!(reply = avahi_dns_packet_new_reply(p, size + AVAHI_DNS_PACKET_EXTRA_SIZE, cq, 1)))
@@ -450,7 +454,7 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
                          * fit in. Let's ignore it. */
 
                         char *t;
-                        avahi_dns_packet_free(reply);
+                        avahi_dns_packet_unref(reply);
                         reply = NULL;
                         t = avahi_record_to_string(r);
                         avahi_log_warn("Record [%s] too large, doesn't fit in any packet!", t);
@@ -463,7 +467,7 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
                 
                 avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS, avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_TC);
                 avahi_interface_send_packet_unicast(i, reply, a, port);
-                avahi_dns_packet_free(reply);
+                avahi_dns_packet_unref(reply);
                 reply = NULL;
             }
         }
@@ -474,7 +478,7 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
     if (reply) {
         if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0)
             avahi_interface_send_packet_unicast(i, reply, a, port);
-        avahi_dns_packet_free(reply);
+        avahi_dns_packet_unref(reply);
     }
 
     avahi_record_list_flush(s->record_list);
@@ -552,6 +556,205 @@ static void reflect_probe(AvahiServer *s, AvahiInterface *i, AvahiRecord *r) {
             avahi_interface_post_probe(j, r, 1);
 }
 
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsPacket *p, const AvahiAddress *a, uint16_t port) {
+	assert(s);
+    assert(i);
+    assert((a && port > 0 && p));
+
+    int cq, aa, ttl;
+    AvahiDnsPacket *reply = NULL;
+    AvahiRecord *r = avahi_record_list_next(s->record_list, NULL, NULL, NULL);
+
+    do {
+		cq = 0;
+		aa = 0;
+		ttl = 0;
+
+		if (r)
+			add_aux_records_to_list(s, i, r, 1);
+
+		for (;;) {
+
+			if (!reply) {
+				assert(p);
+
+				if (!(reply = avahi_dns_packet_new_reply(p, i->hardware->mtu, cq, aa)))
+					break; /* OOM */
+				avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS,
+						avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_QR);
+			}
+
+			if (r) {
+				if (avahi_dns_packet_append_record(reply, r, 0, ttl)) {
+
+					/* Appending this record succeeded, so increment
+					 * the specific header field, and return to the caller */
+
+					avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
+					break;
+				}
+
+				if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) == 0) {
+					size_t size;
+
+					/* The record is too large for one packet, so create a larger packet */
+
+					avahi_dns_packet_unref(reply);
+					size = avahi_record_get_estimate_size(r) + AVAHI_DNS_PACKET_HEADER_SIZE;
+
+					if (!(reply = avahi_dns_packet_new_reply(p, size + AVAHI_DNS_PACKET_EXTRA_SIZE, cq, 1)))
+						break; /* OOM */
+
+					if (avahi_dns_packet_append_record(reply, r, 0, ttl)) {
+
+						/* Appending this record succeeded, so increment
+						 * the specific header field, and return to the caller */
+
+						avahi_dns_packet_inc_field(reply, AVAHI_DNS_FIELD_ANCOUNT);
+						break;
+					}  else {
+
+						/* We completely fucked up, there's
+						 * nothing we can do. The RR just doesn't
+						 * fit in. Let's ignore it. */
+
+						char *t;
+						avahi_dns_packet_unref(reply);
+						reply = NULL;
+						t = avahi_record_to_string(r);
+						avahi_log_warn("Record [%s] too large, doesn't fit in any packet!", t);
+						avahi_free(t);
+						break;
+					}
+				}
+
+				/* Appending the record didn't succeed, so mark the packet as truncated, and send this packet.  Create a new one to continue with the rest of the responses */
+
+				avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS,
+						avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_TC);
+			} else {
+				/* No records, so NXDOMAIN. */
+				avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS,
+						avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_FLAGS) | 3);
+			}
+
+            if (i->protocol == AVAHI_PROTO_INET && s->fd_ipv4_dns >= 0)
+                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, NULL, &a->data.ipv4, port);
+            else if (i->protocol == AVAHI_PROTO_INET6 && s->fd_ipv6_dns >= 0)
+                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, NULL, &a->data.ipv6, port);
+
+            avahi_dns_packet_unref(reply);
+			reply = NULL;
+			if (!r)
+				break;
+		}
+
+		if (r)
+			avahi_record_unref(r);
+    } while ((r = avahi_record_list_next(s->record_list, NULL, NULL, NULL)));
+
+    if (reply) {
+        if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0) {
+            if (i->protocol == AVAHI_PROTO_INET && s->fd_ipv4_dns >= 0)
+                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, NULL, &a->data.ipv4, port);
+            else if (i->protocol == AVAHI_PROTO_INET6 && s->fd_ipv6_dns >= 0)
+                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, NULL, &a->data.ipv6, port);
+        }
+        avahi_dns_packet_unref(reply);
+    }
+
+    avahi_record_list_flush(s->record_list);
+}
+
+struct host_name_resolver_data {
+	AvahiServer *s;
+	AvahiDnsPacket *p;
+	AvahiKey *key;
+	AvahiAddress a;
+	uint16_t port;
+};
+
+static void host_name_resolver_callback(
+    AvahiSHostNameResolver *r,
+	AvahiIfIndex iface,
+	AVAHI_GCC_UNUSED AvahiProtocol protocol,
+    AvahiResolverEvent event,
+	const char *hostname,
+    const AvahiAddress *a,
+    AVAHI_GCC_UNUSED AvahiLookupResultFlags flags,
+    void* userdata) {
+	struct host_name_resolver_data *hnrd = userdata;
+	AvahiInterface *interface = NULL;
+    assert(avahi_record_list_is_empty(hnrd->s->record_list));
+	for (interface = hnrd->s->monitor->interfaces; interface; interface = interface->interface_next)
+		if (iface == interface->hardware->index)
+			break;
+    assert(interface);
+
+    if (event == AVAHI_RESOLVER_FOUND) {
+        //hnrd->key->name  &hnrd->a
+        if (avahi_server_add_external_address(hnrd->s, NULL, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, hostname, a) == AVAHI_OK) {
+	        for (AvahiEntry *e = avahi_hashmap_lookup(hnrd->s->external_entries_by_key, hnrd->key); e; e = e->by_key_next)
+				if (!e->dead)
+					avahi_server_prepare_response(hnrd->s, interface, e, 1, 0);
+		}
+    }
+
+	host_name_generate_response(hnrd->s, interface, hnrd->p, &hnrd->a, hnrd->port);
+
+	avahi_dns_packet_unref(hnrd->p);
+    avahi_key_unref(hnrd->key);
+    avahi_free(hnrd);
+	avahi_s_host_name_resolver_free(r);
+}
+
+static void handle_dns_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInterface *i, const AvahiAddress *a, uint16_t port) {
+    size_t n;
+    assert(s);
+    assert(p);
+    assert(i);
+    assert(a);
+
+    assert(avahi_record_list_is_empty(s->record_list));
+
+    /* Handle the questions */
+    for (n = avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_QDCOUNT); n > 0; n --) {
+        AvahiKey *key;
+        AvahiProtocol proto;
+        if (!(key = avahi_dns_packet_consume_key(p, NULL))) {
+            avahi_log_debug(__FILE__": Packet too short or invalid while reading question key. (Maybe a UTF-8 problem?)");
+            goto fail;
+        }
+
+		if (key->type == AVAHI_DNS_TYPE_A)
+			proto = AVAHI_PROTO_INET;
+        else if (key->type == AVAHI_DNS_TYPE_AAAA)
+			proto = AVAHI_PROTO_INET6;
+        else
+			goto fail;
+
+        struct host_name_resolver_data *host_name_resolver_data;
+        if (!(host_name_resolver_data = avahi_malloc(sizeof(struct host_name_resolver_data))))
+            goto fail;
+        host_name_resolver_data->s = s;
+        host_name_resolver_data->p = avahi_dns_packet_ref(p);
+        host_name_resolver_data->key = key;
+        memcpy(&host_name_resolver_data->a, a, sizeof(AvahiAddress));
+        host_name_resolver_data->port = port;
+		if (!avahi_s_host_name_resolver_new(s, i->hardware->index, proto, key->name, proto, AVAHI_LOOKUP_USE_MULTICAST, host_name_resolver_callback, host_name_resolver_data)) {
+		    avahi_dns_packet_unref(host_name_resolver_data->p);
+		    avahi_key_unref(host_name_resolver_data->key);
+		    avahi_free(host_name_resolver_data);
+		}
+    }
+    return;
+
+fail:
+    avahi_record_list_flush(s->record_list);
+}
+#endif
+
 static void handle_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInterface *i, const AvahiAddress *a, uint16_t port, int legacy_unicast, int from_local_iface) {
     size_t n;
     int is_probe;
@@ -575,7 +778,7 @@ static void handle_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInterfac
             goto fail;
         }
 
-        if (!legacy_unicast && !from_local_iface) {
+		if (!legacy_unicast && !from_local_iface) {
             reflect_query(s, i, key);
             if (!unicast_response)
               avahi_cache_start_poof(i->cache, key, a);
@@ -913,7 +1116,7 @@ static int originates_from_local_iface(AvahiServer *s, AvahiIfIndex iface, const
     return avahi_interface_has_address(s->monitor, iface, a);
 }
 
-static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, const AvahiAddress *src_address, uint16_t port, const AvahiAddress *dst_address, AvahiIfIndex iface, int ttl) {
+static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, int fd, const AvahiAddress *src_address, uint16_t port, const AvahiAddress *dst_address, AvahiIfIndex iface, int ttl) {
     AvahiInterface *i;
     int from_local_iface = 0;
 
@@ -925,9 +1128,9 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, const AvahiAddres
     assert(src_address->proto == dst_address->proto);
 
     if (!(i = avahi_interface_monitor_get_interface(s->monitor, iface, src_address->proto)) ||
-        !i->announcing) {
-        avahi_log_debug("Received packet from invalid interface.");
-        return;
+        (!i->announcing && i->hardware->flags_multicast)) {
+		avahi_log_debug("Received packet from invalid interface (%d).", iface);
+		return;
     }
 
     if (port <= 0) {
@@ -947,7 +1150,7 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, const AvahiAddres
     /* We don't want to reflect local traffic, so we check if this packet is generated locally. */
     from_local_iface = originates_from_local_iface(s, iface, src_address, port);
 
-    if (avahi_dns_packet_check_valid_multicast(p) < 0) {
+    if (avahi_dns_packet_check_valid_response(p) < 0) {
         avahi_log_debug("Received invalid packet.");
         return;
     }
@@ -960,31 +1163,39 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, const AvahiAddres
          * AR section completely here, so far. Until the day we add
          * EDNS0 support. */
 
-        if (port != AVAHI_MDNS_PORT) {
-            /* Legacy Unicast */
+		if (fd == s->fd_ipv4 || fd == s->fd_ipv6) {
+			if (port != AVAHI_MDNS_PORT) {
+				/* Legacy Unicast */
 
-            if ((avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_ANCOUNT) != 0 ||
-                 avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_NSCOUNT) != 0)) {
-                avahi_log_debug("Invalid legacy unicast query packet.");
-                return;
-            }
+				if ((avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_ANCOUNT) != 0 ||
+					 avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_NSCOUNT) != 0)) {
+					avahi_log_debug("Invalid legacy unicast query packet.");
+					return;
+				}
 
-            legacy_unicast = 1;
-        }
+				legacy_unicast = 1;
+			}
 
-        if (!is_mdns_mcast_address(dst_address) &&
-            !avahi_interface_address_on_link(i, src_address)) {
+			if (!is_mdns_mcast_address(dst_address) &&
+				!avahi_interface_address_on_link(i, src_address)) {
 
-            avahi_log_debug("Received non-local unicast query from host %s on interface '%s.%i'.", avahi_address_snprint(t, sizeof(t), src_address), i->hardware->name, i->protocol);
-            return;
-        }
+				avahi_log_debug("Received non-local unicast query from host %s on interface '%s.%i'.", avahi_address_snprint(t, sizeof(t), src_address), i->hardware->name, i->protocol);
+				return;
+			}
 
-        if (legacy_unicast)
-            reflect_legacy_unicast_query_packet(s, p, i, src_address, port);
+			if (legacy_unicast)
+				reflect_legacy_unicast_query_packet(s, p, i, src_address, port);
+		}
 
-        handle_query_packet(s, p, i, src_address, port, legacy_unicast, from_local_iface);
-
-    } else {
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+		if (fd == s->fd_ipv4_dns || fd == s->fd_ipv6_dns) {
+			handle_dns_query_packet(s, p, i, src_address, port);
+		} else
+#endif
+		{
+			handle_query_packet(s, p, i, src_address, port, legacy_unicast, from_local_iface);
+		}
+    } else if (fd == s->fd_ipv4 || fd == s->fd_ipv6) {
         char t[AVAHI_ADDRESS_STR_MAX];
 
         if (port != AVAHI_MDNS_PORT) {
@@ -1047,7 +1258,7 @@ static void dispatch_legacy_unicast_packet(AvahiServer *s, AvahiDnsPacket *p) {
     avahi_dns_packet_set_field(p, AVAHI_DNS_FIELD_ID, slot->id);
 }
 
-static void mcast_socket_event(AvahiWatch *w, int fd, AvahiWatchEvent events, void *userdata) {
+static void socket_event(AvahiWatch *w, int fd, AvahiWatchEvent events, void *userdata) {
     AvahiServer *s = userdata;
     AvahiAddress dest, src;
     AvahiDnsPacket *p = NULL;
@@ -1062,45 +1273,40 @@ static void mcast_socket_event(AvahiWatch *w, int fd, AvahiWatchEvent events, vo
     if (fd == s->fd_ipv4) {
         dest.proto = src.proto = AVAHI_PROTO_INET;
         p = avahi_recv_dns_packet_ipv4(s->fd_ipv4, &src.data.ipv4, &port, &dest.data.ipv4, &iface, &ttl);
-    } else {
-        assert(fd == s->fd_ipv6);
+    } else if (fd == s->fd_ipv6) {
         dest.proto = src.proto = AVAHI_PROTO_INET6;
         p = avahi_recv_dns_packet_ipv6(s->fd_ipv6, &src.data.ipv6, &port, &dest.data.ipv6, &iface, &ttl);
     }
-
-    if (p) {
-        if (iface == AVAHI_IF_UNSPEC)
-            iface = avahi_find_interface_for_address(s->monitor, &dest);
-
-        if (iface != AVAHI_IF_UNSPEC)
-            dispatch_packet(s, p, &src, port, &dest, iface, ttl);
-        else
-            avahi_log_error("Incoming packet received on address that isn't local.");
-
-        avahi_dns_packet_free(p);
-
-        avahi_cleanup_dead_entries(s);
-    }
-}
-
-static void legacy_unicast_socket_event(AvahiWatch *w, int fd, AvahiWatchEvent events, void *userdata) {
-    AvahiServer *s = userdata;
-    AvahiDnsPacket *p = NULL;
-
-    assert(w);
-    assert(fd >= 0);
-    assert(events & AVAHI_WATCH_IN);
-
-    if (fd == s->fd_legacy_unicast_ipv4)
-        p = avahi_recv_dns_packet_ipv4(s->fd_legacy_unicast_ipv4, NULL, NULL, NULL, NULL, NULL);
-    else {
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    else if (fd == s->fd_ipv4_dns) {
+        dest.proto = src.proto = AVAHI_PROTO_INET;
+		p = avahi_recv_dns_packet_ipv4(s->fd_ipv4_dns, &src.data.ipv4, &port, &dest.data.ipv4, &iface, &ttl);
+	} else if (fd == s->fd_ipv6_dns) {
+        dest.proto = src.proto = AVAHI_PROTO_INET6;
+		p = avahi_recv_dns_packet_ipv6(s->fd_ipv6_dns, &src.data.ipv6, &port, &dest.data.ipv6, &iface, &ttl);
+	}
+#endif
+	else if (fd == s->fd_legacy_unicast_ipv4) {
+		p = avahi_recv_dns_packet_ipv4(s->fd_legacy_unicast_ipv4, NULL, NULL, NULL, NULL, NULL);
+	} else {
         assert(fd == s->fd_legacy_unicast_ipv6);
-        p = avahi_recv_dns_packet_ipv6(s->fd_legacy_unicast_ipv6, NULL, NULL, NULL, NULL, NULL);
-    }
+		p = avahi_recv_dns_packet_ipv6(s->fd_legacy_unicast_ipv6, NULL, NULL, NULL, NULL, NULL);
+	}
 
     if (p) {
-        dispatch_legacy_unicast_packet(s, p);
-        avahi_dns_packet_free(p);
+        if (fd == s->fd_legacy_unicast_ipv4 || fd == s->fd_legacy_unicast_ipv6) {
+            dispatch_legacy_unicast_packet(s, p);
+        } else {
+			if (iface == AVAHI_IF_UNSPEC)
+				iface = avahi_find_interface_for_address(s->monitor, &dest);
+
+			if (iface != AVAHI_IF_UNSPEC)
+				dispatch_packet(s, p, fd, &src, port, &dest, iface, ttl);
+			else
+				avahi_log_error("Incoming packet received on address that isn't local.");
+        }
+
+        avahi_dns_packet_unref(p);
 
         avahi_cleanup_dead_entries(s);
     }
@@ -1369,23 +1575,39 @@ static int setup_sockets(AvahiServer *s) {
     else if (s->fd_ipv6 < 0 && s->config.use_ipv6)
         avahi_log_notice("Failed to create IPv6 socket, proceeding in IPv4 only mode");
 
-    s->fd_legacy_unicast_ipv4 = s->fd_ipv4 >= 0 && s->config.enable_reflector ? avahi_open_unicast_socket_ipv4() : -1;
-    s->fd_legacy_unicast_ipv6 = s->fd_ipv6 >= 0 && s->config.enable_reflector ? avahi_open_unicast_socket_ipv6() : -1;
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    s->fd_ipv4_dns = s->config.use_ipv4 ? avahi_open_unicast_socket_ipv4(1) : -1;
+    s->fd_ipv6_dns = s->config.use_ipv6 ? avahi_open_unicast_socket_ipv6(1) : -1;
+#endif
+
+    s->fd_legacy_unicast_ipv4 = s->fd_ipv4 >= 0 && s->config.enable_reflector ? avahi_open_unicast_socket_ipv4(0) : -1;
+    s->fd_legacy_unicast_ipv6 = s->fd_ipv6 >= 0 && s->config.enable_reflector ? avahi_open_unicast_socket_ipv6(0) : -1;
 
     s->watch_ipv4 =
         s->watch_ipv6 =
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+        s->watch_ipv4_dns =
+		s->watch_ipv6_dns =
+#endif
         s->watch_legacy_unicast_ipv4 =
         s->watch_legacy_unicast_ipv6 = NULL;
 
     if (s->fd_ipv4 >= 0)
-        s->watch_ipv4 = s->poll_api->watch_new(s->poll_api, s->fd_ipv4, AVAHI_WATCH_IN, mcast_socket_event, s);
+        s->watch_ipv4 = s->poll_api->watch_new(s->poll_api, s->fd_ipv4, AVAHI_WATCH_IN, socket_event, s);
     if (s->fd_ipv6 >= 0)
-        s->watch_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_ipv6, AVAHI_WATCH_IN, mcast_socket_event, s);
+        s->watch_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_ipv6, AVAHI_WATCH_IN, socket_event, s);
+
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    if (s->fd_ipv4_dns >= 0)
+        s->watch_ipv4_dns = s->poll_api->watch_new(s->poll_api, s->fd_ipv4_dns, AVAHI_WATCH_IN, socket_event, s);
+    if (s->fd_ipv6_dns >= 0)
+        s->watch_ipv6_dns = s->poll_api->watch_new(s->poll_api, s->fd_ipv6_dns, AVAHI_WATCH_IN, socket_event, s);
+#endif
 
     if (s->fd_legacy_unicast_ipv4 >= 0)
-        s->watch_legacy_unicast_ipv4 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv4, AVAHI_WATCH_IN, legacy_unicast_socket_event, s);
+        s->watch_legacy_unicast_ipv4 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv4, AVAHI_WATCH_IN, socket_event, s);
     if (s->fd_legacy_unicast_ipv6 >= 0)
-        s->watch_legacy_unicast_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv6, AVAHI_WATCH_IN, legacy_unicast_socket_event, s);
+        s->watch_legacy_unicast_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv6, AVAHI_WATCH_IN, socket_event, s);
 
     return 0;
 }
@@ -1399,7 +1621,6 @@ AvahiServer *avahi_server_new(const AvahiPoll *poll_api, const AvahiServerConfig
             *error = e;
         return NULL;
     }
-
     if (!(s = avahi_new(AvahiServer, 1))) {
         if (error)
             *error = AVAHI_ERR_NO_MEMORY;
@@ -1441,6 +1662,10 @@ AvahiServer *avahi_server_new(const AvahiPoll *poll_api, const AvahiServerConfig
 
     s->entries_by_key = avahi_hashmap_new((AvahiHashFunc) avahi_key_hash, (AvahiEqualFunc) avahi_key_equal, NULL, NULL);
     AVAHI_LLIST_HEAD_INIT(AvahiEntry, s->entries);
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    s->external_entries_by_key = avahi_hashmap_new((AvahiHashFunc) avahi_key_hash, (AvahiEqualFunc) avahi_key_equal, NULL, NULL);
+	AVAHI_LLIST_HEAD_INIT(AvahiEntry, s->external_entries);
+#endif
     AVAHI_LLIST_HEAD_INIT(AvahiGroup, s->groups);
 
     s->record_browser_hashmap = avahi_hashmap_new((AvahiHashFunc) avahi_key_hash, (AvahiEqualFunc) avahi_key_equal, NULL, NULL);
@@ -1490,7 +1715,6 @@ void avahi_server_free(AvahiServer* s) {
     assert(s);
 
     /* Remove all browsers */
-
     while (s->dns_server_browsers)
         avahi_s_dns_server_browser_free(s->dns_server_browsers);
     while (s->host_name_resolvers)
@@ -1512,6 +1736,10 @@ void avahi_server_free(AvahiServer* s) {
 
     while(s->entries)
         avahi_entry_free(s, s->entries);
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    while(s->external_entries)
+        avahi_entry_free(s, s->external_entries);
+#endif
 
     avahi_interface_monitor_free(s->monitor);
 
@@ -1521,6 +1749,9 @@ void avahi_server_free(AvahiServer* s) {
     free_slots(s);
 
     avahi_hashmap_free(s->entries_by_key);
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    avahi_hashmap_free(s->external_entries_by_key);
+#endif
     avahi_record_list_free(s->record_list);
     avahi_hashmap_free(s->record_browser_hashmap);
 
@@ -1540,6 +1771,13 @@ void avahi_server_free(AvahiServer* s) {
     if (s->watch_ipv6)
         s->poll_api->watch_free(s->watch_ipv6);
 
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+	if (s->watch_ipv4_dns)
+		s->poll_api->watch_free(s->watch_ipv4_dns);
+	if (s->watch_ipv6_dns)
+		s->poll_api->watch_free(s->watch_ipv6_dns);
+#endif
+
     if (s->watch_legacy_unicast_ipv4)
         s->poll_api->watch_free(s->watch_legacy_unicast_ipv4);
     if (s->watch_legacy_unicast_ipv6)
@@ -1551,6 +1789,13 @@ void avahi_server_free(AvahiServer* s) {
         close(s->fd_ipv4);
     if (s->fd_ipv6 >= 0)
         close(s->fd_ipv6);
+
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    if (s->fd_ipv4_dns >= 0)
+        close(s->fd_ipv4_dns);
+    if (s->fd_ipv6_dns >= 0)
+        close(s->fd_ipv6_dns);
+#endif
 
     if (s->fd_legacy_unicast_ipv4 >= 0)
         close(s->fd_legacy_unicast_ipv4);
@@ -1610,31 +1855,31 @@ AvahiServerConfig* avahi_server_config_init(AvahiServerConfig *c) {
     memset(c, 0, sizeof(AvahiServerConfig));
     c->use_ipv6 = 1;
     c->use_ipv4 = 1;
-    c->allow_interfaces = NULL;
-    c->deny_interfaces = NULL;
-    c->host_name = NULL;
-    c->domain_name = NULL;
-    c->check_response_ttl = 0;
-    c->publish_hinfo = 0;
+//    c->allow_interfaces = NULL;
+//    c->deny_interfaces = NULL;
+//    c->host_name = NULL;
+//    c->domain_name = NULL;
+//    c->check_response_ttl = 0;
+//    c->publish_hinfo = 0;
     c->publish_addresses = 1;
-    c->publish_workstation = 0;
+//    c->publish_workstation = 0;
     c->publish_domain = 1;
-    c->use_iff_running = 0;
-    c->enable_reflector = 0;
-    c->reflect_ipv = 0;
-    c->reflect_filters = NULL;
-    c->add_service_cookie = 0;
-    c->enable_wide_area = 0;
-    c->n_wide_area_servers = 0;
-    c->disallow_other_stacks = 0;
-    c->browse_domains = NULL;
-    c->disable_publishing = 0;
-    c->allow_point_to_point = 0;
+//    c->use_iff_running = 0;
+//    c->enable_reflector = 0;
+//    c->reflect_ipv = 0;
+//    c->reflect_filters = NULL;
+//    c->add_service_cookie = 0;
+//    c->enable_wide_area = 0;
+//    c->n_wide_area_servers = 0;
+//    c->disallow_other_stacks = 0;
+//    c->browse_domains = NULL;
+//    c->disable_publishing = 0;
+//    c->allow_point_to_point = 0;
     c->publish_aaaa_on_ipv4 = 1;
-    c->publish_a_on_ipv6 = 0;
+//    c->publish_a_on_ipv6 = 0;
     c->n_cache_entries_max = AVAHI_DEFAULT_CACHE_ENTRIES_MAX;
-    c->ratelimit_interval = 0;
-    c->ratelimit_burst = 0;
+//    c->ratelimit_interval = 0;
+//    c->ratelimit_burst = 0;
 
     return c;
 }

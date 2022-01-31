@@ -22,6 +22,10 @@
 #endif
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>

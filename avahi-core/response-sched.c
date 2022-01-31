@@ -240,7 +240,7 @@ static void send_response_packet(AvahiResponseScheduler *s, AvahiResponseJob *rj
     } else {
         size_t size;
 
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
 
         /* OK, the packet was too small, so create one that fits */
         size = avahi_record_get_estimate_size(rj->record) + AVAHI_DNS_PACKET_HEADER_SIZE;
@@ -249,7 +249,7 @@ static void send_response_packet(AvahiResponseScheduler *s, AvahiResponseJob *rj
             return; /* OOM */
 
         if (!packet_add_response_job(s, p, rj)) {
-            avahi_dns_packet_free(p);
+            avahi_dns_packet_unref(p);
 
             avahi_log_warn("Record too large, cannot send");
             job_mark_done(s, rj);
@@ -259,7 +259,7 @@ static void send_response_packet(AvahiResponseScheduler *s, AvahiResponseJob *rj
 
     avahi_dns_packet_set_field(p, AVAHI_DNS_FIELD_ANCOUNT, n);
     avahi_interface_send_packet(s->interface, p);
-    avahi_dns_packet_free(p);
+    avahi_dns_packet_unref(p);
 }
 
 static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {

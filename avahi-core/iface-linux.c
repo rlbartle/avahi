@@ -45,12 +45,12 @@
 static int netlink_list_items(AvahiNetlink *nl, uint16_t type, unsigned *ret_seq) {
     struct nlmsghdr *n;
     struct rtgenmsg *gen;
-    uint8_t req[1024];
+    uint8_t req[1024] __attribute__((aligned(4)));
 
     /* Issue a wild dump NETLINK request */
 
     memset(&req, 0, sizeof(req));
-    n = (struct nlmsghdr*) req;
+    n = (void*) req;
     n->nlmsg_len = NLMSG_LENGTH(sizeof(struct rtgenmsg));
     n->nlmsg_type = type;
     n->nlmsg_flags = NLM_F_REQUEST|NLM_F_DUMP;
@@ -101,12 +101,16 @@ static void netlink_callback(AvahiNetlink *nl, struct nlmsghdr *n, void* userdat
                 return; /* OOM */
 
         /* Check whether the flags of this interface are OK for us */
-        hw->flags_ok =
-            (ifinfomsg->ifi_flags & IFF_UP) &&
-            (!m->server->config.use_iff_running || (ifinfomsg->ifi_flags & IFF_RUNNING)) &&
-            ((ifinfomsg->ifi_flags & IFF_LOOPBACK) ||
-             (ifinfomsg->ifi_flags & IFF_MULTICAST)) &&
-            (m->server->config.allow_point_to_point || !(ifinfomsg->ifi_flags & IFF_POINTOPOINT));
+        hw->flags_up_running = (ifinfomsg->ifi_flags & IFF_UP) &&
+                (!m->server->config.use_iff_running || (ifinfomsg->ifi_flags & IFF_RUNNING));
+		hw->flags_loopback = !!(ifinfomsg->ifi_flags & IFF_LOOPBACK);
+		hw->flags_multicast = !!(ifinfomsg->ifi_flags & IFF_MULTICAST);
+		hw->flags_point_to_point = !!(ifinfomsg->ifi_flags & IFF_POINTOPOINT);
+
+		if (!hw->flags_up_running ||
+				(hw->flags_point_to_point && !m->server->config.allow_point_to_point) ||
+				(!hw->flags_loopback && !hw->flags_multicast && !hw->flags_point_to_point))
+			 hw->flags_ok = 0;
 
         /* Handle interface attributes */
         l = NLMSG_PAYLOAD(n, sizeof(struct ifinfomsg));

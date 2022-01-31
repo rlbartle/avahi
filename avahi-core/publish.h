@@ -98,6 +98,16 @@ int avahi_server_add_address(
     const char *name,
     AvahiAddress *a);
 
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+int avahi_server_add_external_address(
+    AvahiServer *s,
+    AvahiSEntryGroup *g,
+    AvahiIfIndex interface,
+    AvahiProtocol protocol,
+    const char *name,
+	const AvahiAddress *a);
+#endif
+
 /** Add an DNS-SD service to the Server. This will add all required
  * RRs to the server. See avahi_server_add() for more information.  If
  * adding one of the RRs fails, the function returns with an error,

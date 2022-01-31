@@ -25,6 +25,10 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include "fdutil.h"
 

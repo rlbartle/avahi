@@ -26,6 +26,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/malloc.h>
 #include "netlink.h"
@@ -80,12 +84,12 @@ int avahi_netlink_work(AvahiNetlink *nl, int block) {
         return -1;
     }
 
-    cred = (struct ucred*) CMSG_DATA(cmsg);
+    cred = (void*) CMSG_DATA(cmsg);
 
     if (cred->pid != 0)
         return -1;
 
-    p = (struct nlmsghdr *) nl->buffer;
+    p = (void*) nl->buffer;
 
     assert(nl->callback);
 

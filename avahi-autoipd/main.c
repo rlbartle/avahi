@@ -46,6 +46,10 @@
 #include <arpa/inet.h>
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <errno.h>
 #include <inttypes.h>
 #include <fcntl.h>
@@ -288,13 +292,13 @@ static ArpPacket* packet_new(size_t packet_len) {
 
 #ifdef __linux__
     b = avahi_new0(uint8_t, sizeof(struct ArpPacket) + packet_len);
-    p = (ArpPacket*) b;
+    p = (void*) b;
     p->ether_header = NULL;
     p->ether_payload = b + sizeof(struct ArpPacket);
 
 #else
     b = avahi_new0(uint8_t, sizeof(struct ArpPacket) + ETHER_HDR_SIZE + packet_len);
-    p = (ArpPacket*) b;
+    p = (void*) b;
     p->ether_header = b + sizeof(struct ArpPacket);
     p->ether_payload = b + sizeof(struct ArpPacket) + ETHER_HDR_SIZE;
 #endif

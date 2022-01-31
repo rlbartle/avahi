@@ -130,7 +130,6 @@ static void record_browser_callback(
     assert(rr);
     assert(r);
 
-
     switch (event) {
         case AVAHI_BROWSER_NEW:
             assert(record);
@@ -180,9 +179,52 @@ static void record_browser_callback(
             break;
 
         case AVAHI_BROWSER_CACHE_EXHAUSTED:
-        case AVAHI_BROWSER_ALL_FOR_NOW:
-            /* Ignore */
+        case AVAHI_BROWSER_ALL_FOR_NOW: {
+            /* Ignore - exception being the local host name
+             * interface and protocol are always unspecified in these events. */
+
+            if (event == AVAHI_BROWSER_ALL_FOR_NOW &&
+                    r->server->host_name_fqdn && strcmp(r->server->host_name_fqdn, r->host_name) == 0) {
+                avahi_log_debug("Host name lookup matching the name of the localhost - resolving with local address");
+
+                if (!r->address_record) {
+                    r->flags = flags;
+
+					for (AvahiInterface *i = r->server->monitor->interfaces; i; i = i->interface_next) {
+						if ((r->interface == i->hardware->index ||
+								(r->interface <= 0 && avahi_interface_is_relevant(i) && (r->protocol == i->protocol || r->protocol == AVAHI_PROTO_UNSPEC))) &&
+								(i->announcing || !i->hardware->flags_multicast)) {
+							if (i->protocol == AVAHI_PROTO_INET)
+								r->address_record = avahi_record_new_full(r->host_name, AVAHI_DNS_CLASS_IN, AVAHI_DNS_TYPE_A, AVAHI_DEFAULT_TTL_HOST_NAME);
+							else if (i->protocol == AVAHI_PROTO_INET6)
+								r->address_record = avahi_record_new_full(r->host_name, AVAHI_DNS_CLASS_IN, AVAHI_DNS_TYPE_AAAA, AVAHI_DEFAULT_TTL_HOST_NAME);
+							if (r->address_record) {
+								AvahiInterfaceAddress *a = NULL;
+								for (a = i->addresses; a; a = a->address_next) {
+									if (avahi_interface_address_is_relevant(a) && a->address.proto == i->protocol) {
+										memcpy(&r->address_record->data, &a->address.data, sizeof(a->address.data));
+										break;
+									}
+								}
+								if (a) {
+					                if (r->interface <= 0)
+					                    r->interface = i->hardware->index;
+					                if (r->protocol == AVAHI_PROTO_UNSPEC)
+					                    r->protocol = i->protocol;
+									finish(r, AVAHI_RESOLVER_FOUND);
+									break;
+								} else {
+									/** if has no valid addrs */
+									avahi_record_unref(r->address_record);
+									r->address_record = NULL;
+								}
+							}
+						}
+					}
+                }
+            }
             break;
+        }
 
         case AVAHI_BROWSER_FAILURE:
 

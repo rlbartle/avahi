@@ -182,13 +182,13 @@ static int process_response(int wait_for_done, unsigned seq) {
     do {
         size_t bytes;
         ssize_t r;
-        char replybuf[8*1024];
+        char replybuf[8*1024] __attribute__((aligned(4)));
         char cred_msg[CMSG_SPACE(sizeof(struct ucred))];
         struct msghdr msghdr;
         struct cmsghdr *cmsghdr;
         struct ucred *ucred;
         struct iovec iov;
-        struct nlmsghdr *p = (struct nlmsghdr *) replybuf;
+        struct nlmsghdr *p = (void*) replybuf;
 
         memset(&iov, 0, sizeof(iov));
         iov.iov_base = replybuf;
@@ -213,7 +213,7 @@ static int process_response(int wait_for_done, unsigned seq) {
             return -1;
         }
 
-        ucred = (struct ucred*) CMSG_DATA(cmsghdr);
+        ucred = (void*) CMSG_DATA(cmsghdr);
 
         if (ucred->pid != 0)
             return -1;
@@ -251,14 +251,14 @@ int iface_get_initial_state(State *state) {
     struct nlmsghdr *n;
     struct ifinfomsg *ifi;
     struct ifaddrmsg *ifa;
-    uint8_t req[1024];
+    uint8_t req[1024] __attribute__((aligned(4)));
     int seq = 0;
 
     assert(fd >= 0);
     assert(state);
 
     memset(&req, 0, sizeof(req));
-    n = (struct nlmsghdr*) req;
+    n = (void*) req;
     n->nlmsg_len = NLMSG_LENGTH(sizeof(*ifi));
     n->nlmsg_type = RTM_GETLINK;
     n->nlmsg_seq = seq;

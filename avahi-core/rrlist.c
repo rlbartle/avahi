@@ -23,6 +23,10 @@
 
 #include <stdlib.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/llist.h>
 #include <avahi-common/malloc.h>

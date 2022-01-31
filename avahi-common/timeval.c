@@ -24,6 +24,10 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #ifdef HAVE_TIME_H
 #include <time.h>
 #endif
@@ -32,8 +36,6 @@
 #endif
 
 #include "timeval.h"
-
-#define USE_MONOTONIC (defined(HAVE_CLOCK_GETTIME) && defined(_POSIX_MONOTONIC_CLOCK))
 
 int avahi_timeval_compare(const struct AvahiTimeVal *a, const struct AvahiTimeVal *b) {
     assert(a);
@@ -83,13 +85,13 @@ struct AvahiTimeVal* avahi_timeval_add(struct AvahiTimeVal *a, AvahiUsec usec) {
 
 struct AvahiTimeVal* avahi_now(struct AvahiTimeVal *now) {
     struct timeval tv;
-#if USE_MONOTONIC
+#if defined(HAVE_CLOCK_GETTIME) && defined(_POSIX_MONOTONIC_CLOCK)
     struct timespec ts;
 #endif
 
     assert(now);
 
-#if USE_MONOTONIC
+#if defined(HAVE_CLOCK_GETTIME) && defined(_POSIX_MONOTONIC_CLOCK)
     /* Use a monotonic clock if possible. This prevents jumps in the system
      * clock from messing with timers (especially jumps backward) */
     if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
@@ -100,7 +102,7 @@ struct AvahiTimeVal* avahi_now(struct AvahiTimeVal *now) {
         gettimeofday(&tv, NULL);
         now->tv_sec = tv.tv_sec;
         now->tv_usec = tv.tv_usec;
-#if USE_MONOTONIC
+#if defined(HAVE_CLOCK_GETTIME) && defined(_POSIX_MONOTONIC_CLOCK)
     }
 #endif
 

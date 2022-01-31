@@ -25,6 +25,10 @@
 #include <string.h>
 #include <stdio.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -53,6 +57,7 @@ AvahiDnsPacket* avahi_dns_packet_new(unsigned mtu) {
     if (!(p = avahi_malloc(sizeof(AvahiDnsPacket) + max_size)))
         return p;
 
+    p->ref = 1;
     p->size = p->rindex = AVAHI_DNS_PACKET_HEADER_SIZE;
     p->max_size = max_size;
     p->res_size = 0;
@@ -121,28 +126,38 @@ AvahiDnsPacket* avahi_dns_packet_new_reply(AvahiDnsPacket* p, unsigned mtu, int 
     return r;
 }
 
-
-void avahi_dns_packet_free(AvahiDnsPacket *p) {
+AvahiDnsPacket *avahi_dns_packet_ref(AvahiDnsPacket *p) {
     assert(p);
+    assert(p->ref >= 1);
 
-    if (p->name_table)
-        avahi_hashmap_free(p->name_table);
+    p->ref++;
 
-    avahi_free(p);
+    return p;
+}
+
+void avahi_dns_packet_unref(AvahiDnsPacket *p) {
+    assert(p);
+    assert(p->ref >= 1);
+
+    if ((--p->ref) <= 0) {
+        if (p->name_table)
+            avahi_hashmap_free(p->name_table);
+        avahi_free(p);
+    }
 }
 
 void avahi_dns_packet_set_field(AvahiDnsPacket *p, unsigned idx, uint16_t v) {
     assert(p);
     assert(idx < AVAHI_DNS_PACKET_HEADER_SIZE);
 
-    ((uint16_t*) AVAHI_DNS_PACKET_DATA(p))[idx] = htons(v);
+    ((uint16_t*)(void*) AVAHI_DNS_PACKET_DATA(p))[idx] = htons(v);
 }
 
 uint16_t avahi_dns_packet_get_field(AvahiDnsPacket *p, unsigned idx) {
     assert(p);
     assert(idx < AVAHI_DNS_PACKET_HEADER_SIZE);
 
-    return ntohs(((uint16_t*) AVAHI_DNS_PACKET_DATA(p))[idx]);
+    return ntohs(((uint16_t*)(void*) AVAHI_DNS_PACKET_DATA(p))[idx]);
 }
 
 void avahi_dns_packet_inc_field(AvahiDnsPacket *p, unsigned idx) {
@@ -322,7 +337,7 @@ int avahi_dns_packet_check_valid(AvahiDnsPacket *p) {
     return 0;
 }
 
-int avahi_dns_packet_check_valid_multicast(AvahiDnsPacket *p) {
+int avahi_dns_packet_check_valid_response(AvahiDnsPacket *p) {
     uint16_t flags;
     assert(p);
 

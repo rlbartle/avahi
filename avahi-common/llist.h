@@ -23,6 +23,10 @@
 /** \file llist.h A simple macro based linked list implementation */
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-common/cdecl.h>
 

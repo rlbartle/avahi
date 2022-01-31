@@ -251,7 +251,7 @@ static void append_known_answers_and_send(AvahiQueryScheduler *s, AvahiDnsPacket
             avahi_dns_packet_set_field(p, AVAHI_DNS_FIELD_FLAGS, avahi_dns_packet_get_field(p, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_TC);
             avahi_dns_packet_set_field(p, AVAHI_DNS_FIELD_ANCOUNT, n);
             avahi_interface_send_packet(s->interface, p);
-            avahi_dns_packet_free(p);
+            avahi_dns_packet_unref(p);
 
             p = avahi_dns_packet_new_query(s->interface->hardware->mtu);
             n = 0;
@@ -267,7 +267,7 @@ static void append_known_answers_and_send(AvahiQueryScheduler *s, AvahiDnsPacket
 
     avahi_dns_packet_set_field(p, AVAHI_DNS_FIELD_ANCOUNT, n);
     avahi_interface_send_packet(s->interface, p);
-    avahi_dns_packet_free(p);
+    avahi_dns_packet_unref(p);
 }
 
 static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {

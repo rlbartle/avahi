@@ -33,6 +33,10 @@
 #include <sys/filio.h>
 #endif
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -348,8 +352,8 @@ int avahi_open_socket_ipv4(int no_reuse) {
     if (r < 0)
         goto fail;
 
-    if (ipv4_pktinfo (fd) < 0)
-         goto fail;
+    if (ipv4_pktinfo(fd) < 0)
+        goto fail;
 
     if (avahi_set_cloexec(fd) < 0) {
         avahi_log_warn("FD_CLOEXEC failed: %s", strerror(errno));
@@ -463,7 +467,7 @@ static int sendmsg_loop(int fd, struct msghdr *msg, int flags) {
             } else {
                 where[0] = '\0';
             }
-
+//TODO localhost if does not support multicast. So check before doing..
             avahi_log_debug("sendmsg() to %s failed: %s", where, strerror(errno));
 
             return -1;
@@ -532,7 +536,7 @@ int avahi_send_dns_packet_ipv4(
         cmsg->cmsg_level = IPPROTO_IP;
         cmsg->cmsg_type = IP_PKTINFO;
 
-        pkti = (struct in_pktinfo*) CMSG_DATA(cmsg);
+        pkti = (void*) CMSG_DATA(cmsg);
 
         if (interface > 0)
             pkti->ipi_ifindex = interface;
@@ -561,7 +565,7 @@ int avahi_send_dns_packet_ipv4(
         cmsg->cmsg_level = IPPROTO_IP;
         cmsg->cmsg_type = IP_SENDSRCADDR;
 
-        addr = (struct in_addr *)CMSG_DATA(cmsg);
+        addr = (void*) CMSG_DATA(cmsg);
         addr->s_addr =  src_address->address;
     }
 #elif defined(__GNUC__)
@@ -618,7 +622,7 @@ int avahi_send_dns_packet_ipv6(
         cmsg->cmsg_level = IPPROTO_IPV6;
         cmsg->cmsg_type = IPV6_PKTINFO;
 
-        pkti = (struct in6_pktinfo*) CMSG_DATA(cmsg);
+        pkti = (void*) CMSG_DATA(cmsg);
 
         if (interface > 0)
             pkti->ipi6_ifindex = interface;
@@ -728,13 +732,13 @@ AvahiDnsPacket *avahi_recv_dns_packet_ipv4(
 #endif
                 case IP_TTL:
                     if (ret_ttl)
-                        *ret_ttl = (uint8_t) (*(int *) CMSG_DATA(cmsg));
+                        *ret_ttl = (uint8_t) (*(int *)(void*) CMSG_DATA(cmsg));
 
                     break;
 
 #ifdef IP_PKTINFO
                 case IP_PKTINFO: {
-                    struct in_pktinfo *i = (struct in_pktinfo*) CMSG_DATA(cmsg);
+                    struct in_pktinfo *i = (void*) CMSG_DATA(cmsg);
 
                     if (ret_iface && i->ipi_ifindex > 0)
                         *ret_iface = (int) i->ipi_ifindex;
@@ -750,7 +754,7 @@ AvahiDnsPacket *avahi_recv_dns_packet_ipv4(
 
 #ifdef IP_RECVIF
                 case IP_RECVIF: {
-                    struct sockaddr_dl *sdl = (struct sockaddr_dl *) CMSG_DATA (cmsg);
+                    struct sockaddr_dl *sdl = (void*) CMSG_DATA (cmsg);
 
                     if (ret_iface) {
 #ifdef __sun
@@ -789,7 +793,7 @@ AvahiDnsPacket *avahi_recv_dns_packet_ipv4(
 
 fail:
     if (p)
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
 
     return NULL;
 }
@@ -879,14 +883,14 @@ AvahiDnsPacket *avahi_recv_dns_packet_ipv6(
                 case IPV6_HOPLIMIT:
 
                     if (ret_ttl)
-                        *ret_ttl = (uint8_t) (*(int *) CMSG_DATA(cmsg));
+                        *ret_ttl = (uint8_t) (*(int *)(void*) CMSG_DATA(cmsg));
 
                     found_ttl = 1;
 
                     break;
 
                 case IPV6_PKTINFO: {
-                    struct in6_pktinfo *i = (struct in6_pktinfo*) CMSG_DATA(cmsg);
+                    struct in6_pktinfo *i = (void*) CMSG_DATA(cmsg);
 
                     if (ret_iface && i->ipi6_ifindex > 0)
                         *ret_iface = i->ipi6_ifindex;
@@ -912,14 +916,14 @@ AvahiDnsPacket *avahi_recv_dns_packet_ipv6(
 
 fail:
     if (p)
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
 
     return NULL;
 }
 
-int avahi_open_unicast_socket_ipv4(void) {
+int avahi_open_unicast_socket_ipv4(int use_dns_port) {
     struct sockaddr_in local;
-    int fd = -1;
+    int fd = -1, r, ttl;
 
     if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         avahi_log_warn("socket() failed: %s", strerror(errno));
@@ -929,10 +933,20 @@ int avahi_open_unicast_socket_ipv4(void) {
     memset(&local, 0, sizeof(local));
     local.sin_family = AF_INET;
 
-    if (bind(fd, (struct sockaddr*) &local, sizeof(local)) < 0) {
-        avahi_log_warn("bind() failed: %s", strerror(errno));
-        goto fail;
+    if (use_dns_port) {
+        local.sin_port = htons(AVAHI_DNS_PORT);
+        ttl = 1;
+        if (setsockopt(fd, IPPROTO_IP, IP_TTL, &ttl, sizeof(ttl)) < 0) {
+            avahi_log_warn("IP_TTL failed: %s", strerror(errno));
+            goto fail;
+        }
+        r = bind_with_warn(fd, (struct sockaddr*) &local, sizeof(local));
+    } else {
+        r = bind(fd, (struct sockaddr*) &local, sizeof(local));
     }
+
+    if (r < 0)
+        goto fail;
 
     if (ipv4_pktinfo(fd) < 0) {
          goto fail;
@@ -957,9 +971,9 @@ fail:
     return -1;
 }
 
-int avahi_open_unicast_socket_ipv6(void) {
+int avahi_open_unicast_socket_ipv6(int use_dns_port) {
     struct sockaddr_in6 local;
-    int fd = -1, yes;
+    int fd = -1, yes, r, ttl;
 
     if ((fd = socket(AF_INET6, SOCK_DGRAM, 0)) < 0) {
         avahi_log_warn("socket() failed: %s", strerror(errno));
@@ -975,10 +989,20 @@ int avahi_open_unicast_socket_ipv6(void) {
     memset(&local, 0, sizeof(local));
     local.sin6_family = AF_INET6;
 
-    if (bind(fd, (struct sockaddr*) &local, sizeof(local)) < 0) {
-        avahi_log_warn("bind() failed: %s", strerror(errno));
-        goto fail;
+    if (use_dns_port) {
+        local.sin6_port = htons(AVAHI_DNS_PORT);
+        ttl = 1;
+        if (setsockopt(fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &ttl, sizeof(ttl)) < 0) {
+            avahi_log_warn("IPV6_UNICAST_HOPS failed: %s", strerror(errno));
+            goto fail;
+        }
+        r = bind_with_warn(fd, (struct sockaddr*) &local, sizeof(local));
+    } else {
+        r = bind(fd, (struct sockaddr*) &local, sizeof(local));
     }
+
+    if (r < 0)
+        goto fail;
 
     if (ipv6_pktinfo(fd) < 0)
         goto fail;

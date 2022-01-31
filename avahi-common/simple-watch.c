@@ -23,6 +23,10 @@
 
 #include <poll.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>

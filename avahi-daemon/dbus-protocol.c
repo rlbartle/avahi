@@ -30,6 +30,10 @@
 #include <errno.h>
 #include <unistd.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -282,7 +286,7 @@ static DBusHandlerResult dbus_get_host_name_fqdn(DBusConnection *c, DBusMessage 
     return avahi_dbus_respond_string(c, m, avahi_server_get_host_name_fqdn(avahi_server));
 }
 
-static DBusHandlerResult dbus_is_ns_support_available(DBusConnection *c, DBusMessage *m, DBusError *error) {
+static DBusHandlerResult dbus_is_nss_support_available(DBusConnection *c, DBusMessage *m, DBusError *error) {
     if (!(dbus_message_get_args(m, error, DBUS_TYPE_INVALID))) {
         return dbus_parsing_error("Error parsing Server::IsNSSSupportAvailable message", error);
     }
@@ -1016,7 +1020,7 @@ static DBusHandlerResult dbus_select_common_methods(DBusConnection *c, DBusMessa
         return dbus_get_host_name_fqdn(c, m, error);
 
     } else if (dbus_message_is_method_call(m, iface, "IsNSSSupportAvailable")) {
-        return dbus_is_ns_support_available(c, m, error);
+        return dbus_is_nss_support_available(c, m, error);
 
     } else if (dbus_message_is_method_call(m, iface, "GetVersionString")) {
         return dbus_get_version_string(c, m, error);
@@ -1069,7 +1073,7 @@ CREATE_DBUS_DELAY_FUNC(RecordBrowserInfo, record_browser, avahi_s_record_browser
 static DBusHandlerResult dbus_select_browser(DBusConnection *c, DBusMessage *m, AVAHI_GCC_UNUSED void *userdata, const char *iface, DBusError *error) {
     DBusHandlerResult r;
     const AvahiPoll *poll_api = NULL;
-    struct timeval tv;
+    struct AvahiTimeVal tv;
 
     poll_api = avahi_simple_poll_get(simple_poll_api);
     avahi_elapse_time(&tv, DEFAULT_START_DELAY_MS, 0);

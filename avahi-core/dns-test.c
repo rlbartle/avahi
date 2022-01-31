@@ -22,6 +22,10 @@
 #endif
 
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -68,7 +72,7 @@ int main(AVAHI_GCC_UNUSED int argc, AVAHI_GCC_UNUSED char *argv[]) {
     avahi_log_debug(">%s<", t);
     assert(avahi_domain_equal(d, t));
 
-    avahi_dns_packet_free(p);
+    avahi_dns_packet_unref(p);
 
     /* RDATA PARSING AND SERIALIZATION */
 

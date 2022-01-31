@@ -403,10 +403,12 @@ AvahiHwInterface *avahi_hw_interface_new(AvahiInterfaceMonitor *m, AvahiIfIndex 
 
     avahi_hashmap_insert(m->hashmap, &hw->index, hw);
 
-    if (m->server->fd_ipv4 >= 0 || m->server->config.publish_a_on_ipv6)
-        avahi_interface_new(m, hw, AVAHI_PROTO_INET);
+    /** avahi_interface_new prepends entries, so to get the logical preference
+     * of IPv4 coming first when iterating them, the setup is inverted */
     if (m->server->fd_ipv6 >= 0 || m->server->config.publish_aaaa_on_ipv4)
         avahi_interface_new(m, hw, AVAHI_PROTO_INET6);
+    if (m->server->fd_ipv4 >= 0 || m->server->config.publish_a_on_ipv6)
+        avahi_interface_new(m, hw, AVAHI_PROTO_INET);
 
     return hw;
 }
@@ -441,8 +443,7 @@ void avahi_interface_check_relevant(AvahiInterface *i) {
     m = i->monitor;
 
     b = avahi_interface_is_relevant(i);
-
-    if (m->list_complete && b && !i->announcing) {
+    if (m->list_complete && b && !i->announcing && i->hardware->flags_multicast) {
         interface_mdns_mcast_join(i, 1);
 
         if (i->mcast_joined) {

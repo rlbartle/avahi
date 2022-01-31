@@ -245,7 +245,7 @@ static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {
         AvahiKey *k;
         int b;
 
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
 
         /* The probe didn't fit in the package, so let's allocate a larger one */
 
@@ -258,7 +258,7 @@ static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {
             return; /* OOM */
 
         if (!(k = avahi_key_new(pj->record->key->name, pj->record->key->clazz, AVAHI_DNS_TYPE_ANY))) {
-            avahi_dns_packet_free(p);
+            avahi_dns_packet_unref(p);
             return;  /* OOM */
         }
 
@@ -272,7 +272,7 @@ static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {
         } else
             avahi_log_warn("Probe record too large, cannot send");
 
-        avahi_dns_packet_free(p);
+        avahi_dns_packet_unref(p);
         job_mark_done(s, pj);
 
         return;
@@ -321,7 +321,7 @@ static void elapse_callback(AVAHI_GCC_UNUSED AvahiTimeEvent *e, void* data) {
 
     /* Send it now */
     avahi_interface_send_packet(s->interface, p);
-    avahi_dns_packet_free(p);
+    avahi_dns_packet_unref(p);
 }
 
 static AvahiProbeJob* find_scheduled_job(AvahiProbeScheduler *s, AvahiRecord *record) {

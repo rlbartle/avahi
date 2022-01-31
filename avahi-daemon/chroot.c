@@ -31,6 +31,10 @@
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
+#ifdef NDEBUG
+#undef assert
+#define assert(e) (void)(e)
+#endif
 
 #include <avahi-core/log.h>
 #include <libdaemon/dfork.h>
@@ -129,7 +133,7 @@ static int send_fd(int fd, int payload_fd) {
     cmsg.hdr.cmsg_len = CMSG_LEN(sizeof(int));
     cmsg.hdr.cmsg_level = SOL_SOCKET;
     cmsg.hdr.cmsg_type = SCM_RIGHTS;
-    *((int*) CMSG_DATA(&cmsg.hdr)) = payload_fd;
+    *((int*)(void*) CMSG_DATA(&cmsg.hdr)) = payload_fd;
 
     if (sendmsg(fd, &msg, 0) < 0) {
         avahi_log_error("sendmsg() failed: %s", strerror(errno));
@@ -169,7 +173,7 @@ static int recv_fd(int fd) {
     cmsg.hdr.cmsg_len = CMSG_LEN(sizeof(int));
     cmsg.hdr.cmsg_level = SOL_SOCKET;
     cmsg.hdr.cmsg_type = SCM_RIGHTS;
-    *((int*) CMSG_DATA(&cmsg.hdr)) = -1;
+    *((int*)(void*) CMSG_DATA(&cmsg.hdr)) = -1;
 
     if (recvmsg(fd, &msg, 0) <= 0) {
         avahi_log_error("recvmsg() failed: %s", strerror(errno));
@@ -192,7 +196,7 @@ static int recv_fd(int fd) {
         assert(h->cmsg_level == SOL_SOCKET);
         assert(h->cmsg_type == SCM_RIGHTS);
 
-        return *((int*)CMSG_DATA(h));
+        return *((int*)(void*)CMSG_DATA(h));
     }
 }
 

@@ -66,6 +66,9 @@ struct AvahiEntry {
     AvahiSEntryGroup *group;
 
     int dead;
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    unsigned external;
+#endif
 
     AvahiPublishFlags flags;
     AvahiRecord *record;
@@ -107,6 +110,10 @@ struct AvahiServer {
 
     AVAHI_LLIST_HEAD(AvahiEntry, entries);
     AvahiHashmap *entries_by_key;
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+    AVAHI_LLIST_HEAD(AvahiEntry, external_entries);
+    AvahiHashmap *external_entries_by_key;
+#endif
 
     AVAHI_LLIST_HEAD(AvahiSEntryGroup, groups);
 
@@ -130,10 +137,17 @@ struct AvahiServer {
     char *host_name, *host_name_fqdn, *domain_name;
 
     int fd_ipv4, fd_ipv6,
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+		/* These sockets are used to perform actual DNS */
+		fd_ipv4_dns, fd_ipv6_dns,
+#endif
         /* The following two sockets two are used for reflection only */
         fd_legacy_unicast_ipv4, fd_legacy_unicast_ipv6;
 
     AvahiWatch *watch_ipv4, *watch_ipv6,
+#ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
+        *watch_ipv4_dns, *watch_ipv6_dns,
+#endif
         *watch_legacy_unicast_ipv4, *watch_legacy_unicast_ipv6;
 
     AvahiServerState state;

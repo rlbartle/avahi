@@ -32,7 +32,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -47,6 +47,7 @@
 int sd_listen_fds(int unset_environment) {
 
 #if defined(DISABLE_SYSTEMD) || !defined(__linux__)
+		(void)unset_environment;
         return 0;
 #else
         int r, fd;
@@ -327,6 +328,8 @@ int sd_is_socket_unix(int fd, int type, int listening, const char *path, size_t 
 
 int sd_notify(int unset_environment, const char *state) {
 #if defined(DISABLE_SYSTEMD) || !defined(__linux__) || !defined(SOCK_CLOEXEC)
+		(void)unset_environment;
+		(void)state;
         return 0;
 #else
         int fd = -1, r;
@@ -395,6 +398,8 @@ finish:
 
 int sd_notifyf(int unset_environment, const char *format, ...) {
 #if defined(DISABLE_SYSTEMD) || !defined(__linux__)
+		(void)unset_environment;
+		(void)format;
         return 0;
 #else
         va_list ap;
