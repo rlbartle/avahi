@@ -180,19 +180,19 @@ static void record_browser_callback(
 
         case AVAHI_BROWSER_CACHE_EXHAUSTED:
         case AVAHI_BROWSER_ALL_FOR_NOW: {
-            /* Ignore - exception being the local host name
-             * interface and protocol are always unspecified in these events. */
+            /* Ignore - exception being the local host name */
 
             if (event == AVAHI_BROWSER_ALL_FOR_NOW &&
                     r->server->host_name_fqdn && strcmp(r->server->host_name_fqdn, r->host_name) == 0) {
                 avahi_log_debug("Host name lookup matching the name of the localhost - resolving with local address");
 
                 if (!r->address_record) {
-                    r->flags = flags;
+                    r->flags = rr->flags;
 
 					for (AvahiInterface *i = r->server->monitor->interfaces; i; i = i->interface_next) {
 						if ((r->interface == i->hardware->index ||
-								(r->interface <= 0 && avahi_interface_is_relevant(i) && (r->protocol == i->protocol || r->protocol == AVAHI_PROTO_UNSPEC))) &&
+								(r->interface <= 0 && avahi_interface_is_relevant(i))) &&
+								(r->protocol == i->protocol || r->protocol == AVAHI_PROTO_UNSPEC) &&
 								(i->announcing || !i->hardware->flags_multicast)) {
 							if (i->protocol == AVAHI_PROTO_INET)
 								r->address_record = avahi_record_new_full(r->host_name, AVAHI_DNS_CLASS_IN, AVAHI_DNS_TYPE_A, AVAHI_DEFAULT_TTL_HOST_NAME);
@@ -211,11 +211,12 @@ static void record_browser_callback(
 					                    r->interface = i->hardware->index;
 					                if (r->protocol == AVAHI_PROTO_UNSPEC)
 					                    r->protocol = i->protocol;
+
 									finish(r, AVAHI_RESOLVER_FOUND);
 									break;
 								} else {
 									/** if has no valid addrs */
-									avahi_record_unref(r->address_record);
+					                avahi_record_unref(r->address_record);
 									r->address_record = NULL;
 								}
 							}

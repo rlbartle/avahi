@@ -557,10 +557,10 @@ static void reflect_probe(AvahiServer *s, AvahiInterface *i, AvahiRecord *r) {
 }
 
 #ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
-static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsPacket *p, const AvahiAddress *a, uint16_t port) {
+static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsPacket *p, const AvahiAddress *src_address, uint16_t port, const AvahiAddress *dst_address) {
 	assert(s);
     assert(i);
-    assert((a && port > 0 && p));
+    assert((src_address && dst_address && port > 0 && p));
 
     int cq, aa, ttl;
     AvahiDnsPacket *reply = NULL;
@@ -640,9 +640,9 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
 			}
 
             if (i->protocol == AVAHI_PROTO_INET && s->fd_ipv4_dns >= 0)
-                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, NULL, &a->data.ipv4, port);
+                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, &dst_address->data.ipv4, &src_address->data.ipv4, port);
             else if (i->protocol == AVAHI_PROTO_INET6 && s->fd_ipv6_dns >= 0)
-                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, NULL, &a->data.ipv6, port);
+                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, &dst_address->data.ipv6, &src_address->data.ipv6, port);
 
             avahi_dns_packet_unref(reply);
 			reply = NULL;
@@ -657,9 +657,9 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
     if (reply) {
         if (avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_ANCOUNT) != 0) {
             if (i->protocol == AVAHI_PROTO_INET && s->fd_ipv4_dns >= 0)
-                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, NULL, &a->data.ipv4, port);
+                avahi_send_dns_packet_ipv4(s->fd_ipv4_dns, i->hardware->index, reply, &dst_address->data.ipv4, &src_address->data.ipv4, port);
             else if (i->protocol == AVAHI_PROTO_INET6 && s->fd_ipv6_dns >= 0)
-                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, NULL, &a->data.ipv6, port);
+                avahi_send_dns_packet_ipv6(s->fd_ipv6_dns, i->hardware->index, reply, &dst_address->data.ipv6, &src_address->data.ipv6, port);
         }
         avahi_dns_packet_unref(reply);
     }
@@ -670,14 +670,16 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
 struct host_name_resolver_data {
 	AvahiServer *s;
 	AvahiDnsPacket *p;
+	AvahiIfIndex i;
 	AvahiKey *key;
-	AvahiAddress a;
+	AvahiAddress src_address;
 	uint16_t port;
+	AvahiAddress dst_address;
 };
 
 static void host_name_resolver_callback(
     AvahiSHostNameResolver *r,
-	AvahiIfIndex iface,
+	AVAHI_GCC_UNUSED AvahiIfIndex iface,
 	AVAHI_GCC_UNUSED AvahiProtocol protocol,
     AvahiResolverEvent event,
 	const char *hostname,
@@ -688,12 +690,11 @@ static void host_name_resolver_callback(
 	AvahiInterface *interface = NULL;
     assert(avahi_record_list_is_empty(hnrd->s->record_list));
 	for (interface = hnrd->s->monitor->interfaces; interface; interface = interface->interface_next)
-		if (iface == interface->hardware->index)
+		if (hnrd->i == interface->hardware->index)
 			break;
     assert(interface);
 
     if (event == AVAHI_RESOLVER_FOUND) {
-        //hnrd->key->name  &hnrd->a
         if (avahi_server_add_external_address(hnrd->s, NULL, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, hostname, a) == AVAHI_OK) {
 	        for (AvahiEntry *e = avahi_hashmap_lookup(hnrd->s->external_entries_by_key, hnrd->key); e; e = e->by_key_next)
 				if (!e->dead)
@@ -701,7 +702,7 @@ static void host_name_resolver_callback(
 		}
     }
 
-	host_name_generate_response(hnrd->s, interface, hnrd->p, &hnrd->a, hnrd->port);
+	host_name_generate_response(hnrd->s, interface, hnrd->p, &hnrd->src_address, hnrd->port, &hnrd->dst_address);
 
 	avahi_dns_packet_unref(hnrd->p);
     avahi_key_unref(hnrd->key);
@@ -709,12 +710,13 @@ static void host_name_resolver_callback(
 	avahi_s_host_name_resolver_free(r);
 }
 
-static void handle_dns_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInterface *i, const AvahiAddress *a, uint16_t port) {
+static void handle_dns_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInterface *i, const AvahiAddress *src_address, uint16_t port, const AvahiAddress *dst_address) {
     size_t n;
     assert(s);
     assert(p);
     assert(i);
-    assert(a);
+    assert(src_address);
+    assert(dst_address);
 
     assert(avahi_record_list_is_empty(s->record_list));
 
@@ -739,10 +741,13 @@ static void handle_dns_query_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInte
             goto fail;
         host_name_resolver_data->s = s;
         host_name_resolver_data->p = avahi_dns_packet_ref(p);
+        host_name_resolver_data->i = i->hardware->index;
         host_name_resolver_data->key = key;
-        memcpy(&host_name_resolver_data->a, a, sizeof(AvahiAddress));
+        memcpy(&host_name_resolver_data->src_address, src_address, sizeof(AvahiAddress));
         host_name_resolver_data->port = port;
-		if (!avahi_s_host_name_resolver_new(s, i->hardware->index, proto, key->name, proto, AVAHI_LOOKUP_USE_MULTICAST, host_name_resolver_callback, host_name_resolver_data)) {
+        memcpy(&host_name_resolver_data->dst_address, dst_address, sizeof(AvahiAddress));
+        /* Not using i->hardware->index, because that is only the localhost */
+        if (!avahi_s_host_name_resolver_new(s, AVAHI_IF_UNSPEC, proto, key->name, proto, AVAHI_LOOKUP_USE_MULTICAST, host_name_resolver_callback, host_name_resolver_data)) {
 		    avahi_dns_packet_unref(host_name_resolver_data->p);
 		    avahi_key_unref(host_name_resolver_data->key);
 		    avahi_free(host_name_resolver_data);
@@ -1189,7 +1194,7 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, int fd, const Ava
 
 #ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
 		if (fd == s->fd_ipv4_dns || fd == s->fd_ipv6_dns) {
-			handle_dns_query_packet(s, p, i, src_address, port);
+			handle_dns_query_packet(s, p, i, src_address, port, dst_address);
 		} else
 #endif
 		{
