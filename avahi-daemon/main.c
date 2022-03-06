@@ -1112,6 +1112,8 @@ static void signal_callback(AvahiWatch *watch, AVAHI_GCC_UNUSED int fd, AVAHI_GC
             avahi_log_info("Got SIGHUP, reloading.");
 
             reload_config();
+            if (config.server_config.host_name == NULL)
+                avahi_server_set_host_name(avahi_server, NULL);
             break;
 
         case SIGUSR1:

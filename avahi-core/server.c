@@ -214,7 +214,7 @@ static void incoming_probe(AvahiServer *s, AvahiRecord *record, AvahiInterface *
         if (e->dead)
             continue;
 
-        if ((cmp = avahi_record_lexicographical_compare(e->record, record)) == 0 || from_local_iface) {
+        if (from_local_iface || (cmp = avahi_record_lexicographical_compare(e->record, record)) == 0) {
             ours = 1;
             break;
         } else {
@@ -905,7 +905,7 @@ static void handle_response_packet(AvahiServer *s, AvahiDnsPacket *p, AvahiInter
                 }
             }
 
-            if (handle_conflict(s, i, record, cache_flush)) {
+            if (from_local_iface || handle_conflict(s, i, record, cache_flush)) {
                 if (!from_local_iface) {
                     if (!avahi_record_is_link_local_address(record))
                         reflect_response(s, i, record, cache_flush);
@@ -1152,7 +1152,7 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, int fd, const Ava
         /* This originates from our local reflector, so let's ignore it */
         return;
 
-    /* We don't want to reflect local traffic, so we check if this packet is generated locally. */
+    /* We don't want to reflect or trigger conflict condition with local traffic, so we check if this packet is generated locally. */
     from_local_iface = originates_from_local_iface(s, iface, src_address, port);
 
     if (avahi_dns_packet_check_valid_response(p) < 0) {
