@@ -999,7 +999,10 @@ static void add_kqueue_watch(const char *dir) {
 
 #endif
 
-static void reload_config(void) {
+static int reload_config(void) {
+
+    if (resolv_conf_entry_group)
+        avahi_s_entry_group_reset(resolv_conf_entry_group);
 
 #ifdef HAVE_INOTIFY
     /* Refresh in case the config dirs have been removed */
@@ -1009,6 +1012,18 @@ static void reload_config(void) {
 #ifdef HAVE_KQUEUE
     add_kqueue_watches();
 #endif
+
+	if (load_config_file(&config) < 0) {
+#ifdef ENABLE_CHROOT
+		if (!config.use_chroot)
+#endif
+		{
+			avahi_simple_poll_quit(simple_poll_api);
+			return -1;
+		}
+    }
+
+    load_resolv_conf();
 
 #ifdef ENABLE_CHROOT
     static_service_load(config.use_chroot);
@@ -1020,19 +1035,13 @@ static void reload_config(void) {
     static_service_add_to_server();
     static_hosts_add_to_server();
 
-    if (load_config_file(&config) < 0)
-        exit(EXIT_FAILURE);
-
-    if (resolv_conf_entry_group)
-        avahi_s_entry_group_reset(resolv_conf_entry_group);
-
-    load_resolv_conf();
-
     update_wide_area_servers();
     update_browse_domains();
 
     if (config.publish_resolv_conf && resolv_conf_name_servers && resolv_conf_name_servers[0])
         resolv_conf_entry_group = add_dns_servers(avahi_server, resolv_conf_entry_group, resolv_conf_name_servers);
+
+	return 0;
 }
 
 #ifdef HAVE_INOTIFY
@@ -1113,11 +1122,10 @@ static void signal_callback(AvahiWatch *watch, AVAHI_GCC_UNUSED int fd, AVAHI_GC
 
         case SIGHUP:
             avahi_log_info("Got SIGHUP, reloading.");
-
-            reload_config();
-            if (config.server_config.host_name == NULL)
-                avahi_server_set_host_name(avahi_server, NULL);
-            avahi_service_check_reflector(avahi_server, &config.server_config);
+            if (reload_config() == 0) {
+                avahi_server_set_host_name(avahi_server, config.server_config.host_name);
+                avahi_service_check_reflector(avahi_server, &config.server_config);
+            }
             break;
 
         case SIGUSR1:
