@@ -131,6 +131,10 @@ int avahi_server_set_host_name(AvahiServer *s, const char *host_name);
  * as with avahi_server_set_host_name() apply. */
 int avahi_server_set_domain_name(AvahiServer *s, const char *domain_name);
 
+/** Checks for changes to the reflector configuration option and opens
+ *  or closes the relevant resources to handle it. */
+int avahi_service_check_reflector(AvahiServer *s, const AvahiServerConfig *sc);
+
 /** Return the opaque user data pointer attached to a server object */
 void* avahi_server_get_data(AvahiServer *s);
 

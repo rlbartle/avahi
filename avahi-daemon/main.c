@@ -1020,6 +1020,9 @@ static void reload_config(void) {
     static_service_add_to_server();
     static_hosts_add_to_server();
 
+    if (load_config_file(&config) < 0)
+        exit(EXIT_FAILURE);
+
     if (resolv_conf_entry_group)
         avahi_s_entry_group_reset(resolv_conf_entry_group);
 
@@ -1114,6 +1117,7 @@ static void signal_callback(AvahiWatch *watch, AVAHI_GCC_UNUSED int fd, AVAHI_GC
             reload_config();
             if (config.server_config.host_name == NULL)
                 avahi_server_set_host_name(avahi_server, NULL);
+            avahi_service_check_reflector(avahi_server, &config.server_config);
             break;
 
         case SIGUSR1:

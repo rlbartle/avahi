@@ -1545,6 +1545,40 @@ int avahi_server_set_domain_name(AvahiServer *s, const char *domain_name) {
     return AVAHI_OK;
 }
 
+int avahi_service_check_reflector(AvahiServer *s, const AvahiServerConfig *sc) {
+    assert(s);
+    if (sc->enable_reflector == s->config.enable_reflector)
+        return AVAHI_OK;
+
+    s->config.enable_reflector = sc->enable_reflector;
+    if (sc->enable_reflector) {
+        s->fd_legacy_unicast_ipv4 = s->fd_ipv4 >= 0 ? avahi_open_unicast_socket_ipv4(0) : -1;
+        s->fd_legacy_unicast_ipv6 = s->fd_ipv6 >= 0 ? avahi_open_unicast_socket_ipv6(0) : -1;
+        if (s->fd_legacy_unicast_ipv4 >= 0)
+            s->watch_legacy_unicast_ipv4 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv4, AVAHI_WATCH_IN, socket_event, s);
+        if (s->fd_legacy_unicast_ipv6 >= 0)
+            s->watch_legacy_unicast_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv6, AVAHI_WATCH_IN, socket_event, s);
+    } else {
+        if (s->watch_legacy_unicast_ipv4) {
+            s->poll_api->watch_free(s->watch_legacy_unicast_ipv4);
+            s->watch_legacy_unicast_ipv4 = NULL;
+        }
+        if (s->watch_legacy_unicast_ipv6) {
+            s->poll_api->watch_free(s->watch_legacy_unicast_ipv6);
+            s->watch_legacy_unicast_ipv6 = NULL;
+        }
+        if (s->fd_legacy_unicast_ipv4 >= 0) {
+            close(s->fd_legacy_unicast_ipv4);
+            s->fd_legacy_unicast_ipv4 = -1;
+        }
+        if (s->fd_legacy_unicast_ipv6 >= 0) {
+            close(s->fd_legacy_unicast_ipv6);
+            s->fd_legacy_unicast_ipv6 = -1;
+        }
+    }
+    return AVAHI_OK;
+}
+
 static int valid_server_config(const AvahiServerConfig *sc) {
     AvahiStringList *l;
 
@@ -1614,7 +1648,7 @@ static int setup_sockets(AvahiServer *s) {
     if (s->fd_legacy_unicast_ipv6 >= 0)
         s->watch_legacy_unicast_ipv6 = s->poll_api->watch_new(s->poll_api, s->fd_legacy_unicast_ipv6, AVAHI_WATCH_IN, socket_event, s);
 
-    return 0;
+    return AVAHI_OK;
 }
 
 AvahiServer *avahi_server_new(const AvahiPoll *poll_api, const AvahiServerConfig *sc, AvahiServerCallback callback, void* userdata, int *error) {
