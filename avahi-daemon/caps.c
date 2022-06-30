@@ -132,6 +132,7 @@ int avahi_caps_reduce3(void) {
 
     return ret;
 }
+
 #endif
 
 int avahi_caps_drop_all(void) {

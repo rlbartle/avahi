@@ -1220,20 +1220,24 @@ static int run_server(DaemonConfig *c) {
     }
 #endif
 
+    if (config.drop_root) {
 #ifdef ENABLE_CHROOT
+        if (config.use_chroot) {
+            if (chroot(AVAHI_CONFIG_DIR) < 0) {
+                avahi_log_error("Failed to chroot(): %s", strerror(errno));
+                goto finish;
+            }
 
-    if (config.drop_root && config.use_chroot) {
-        if (chroot(AVAHI_CONFIG_DIR) < 0) {
-            avahi_log_error("Failed to chroot(): %s", strerror(errno));
-            goto finish;
+            avahi_log_info("Successfully called chroot().");
+            chdir("/");
         }
-
-        avahi_log_info("Successfully called chroot().");
-        chdir("/");
+#endif
 
 #ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
-        if (avahi_caps_reduce3() < 0)
+        if (avahi_caps_reduce3() < 0) {
+            avahi_log_error("Failed to drop capabilities.");
             goto finish;
+        }
 #else
 		if (avahi_caps_drop_all() < 0) {
             avahi_log_error("Failed to drop capabilities.");
@@ -1242,8 +1246,6 @@ static int run_server(DaemonConfig *c) {
         avahi_log_info("Successfully dropped remaining capabilities.");
 #endif
     }
-
-#endif
 
 #ifdef HAVE_INOTIFY
     if ((inotify_fd = inotify_init()) < 0)
@@ -1671,20 +1673,14 @@ int main(int argc, char *argv[]) {
             goto finish;
 
         if (config.drop_root) {
-#ifdef ENABLE_CHROOT
-            if (config.use_chroot)
-                if (avahi_caps_reduce() < 0)
-                    goto finish;
-#endif
+            if (avahi_caps_reduce() < 0)
+                goto finish;
 
             if (drop_root() < 0)
                 goto finish;
 
-#ifdef ENABLE_CHROOT
-            if (config.use_chroot)
-                if (avahi_caps_reduce2() < 0)
-                    goto finish;
-#endif
+            if (avahi_caps_reduce2() < 0)
+                goto finish;
         }
         
         /* We may get signalled to reload / dump data before signal
