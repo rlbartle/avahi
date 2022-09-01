@@ -381,6 +381,12 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
 
     while ((r = avahi_record_list_next(s->record_list, &flush_cache, &unicast_response, &auxiliary))) {
 
+//    	if (a && avahi_address_is_local(s->monitor, a)) {
+//    	    char *txt = avahi_record_to_string(r);
+//    	    avahi_log_debug("%s", txt);
+//    	    avahi_free(txt);
+//    	}
+
         if (legacy_unicast) {
             flush_cache = 0;
             cq = 1;
@@ -1198,6 +1204,10 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, int fd, const Ava
 		} else
 #endif
 		{
+//		    if (avahi_address_is_local(s->monitor, src_address)) {
+//		        char t2[AVAHI_ADDRESS_STR_MAX];
+//		    	avahi_log_debug("Received local query to %s (host %s on interface '%s.%i').", avahi_address_snprint(t2, sizeof(t2), dst_address), avahi_address_snprint(t, sizeof(t), src_address), i->hardware->name, i->protocol);
+//		    }
 			handle_query_packet(s, p, i, src_address, port, legacy_unicast, from_local_iface);
 		}
     } else if (fd == s->fd_ipv4 || fd == s->fd_ipv6) {
