@@ -381,11 +381,11 @@ void avahi_server_generate_response(AvahiServer *s, AvahiInterface *i, AvahiDnsP
 
     while ((r = avahi_record_list_next(s->record_list, &flush_cache, &unicast_response, &auxiliary))) {
 
-//    	if (a && avahi_address_is_local(s->monitor, a)) {
-//    	    char *txt = avahi_record_to_string(r);
-//    	    avahi_log_debug("%s", txt);
-//    	    avahi_free(txt);
-//    	}
+		//if (a && avahi_address_is_local(s->monitor, a)) {
+		//	char *txt = avahi_record_to_string(r);
+		//	avahi_log_debug("%s", txt);
+		//	avahi_free(txt);
+		//}
 
         if (legacy_unicast) {
             flush_cache = 0;
@@ -573,6 +573,7 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
     assert(i);
     assert((src_address && dst_address && port > 0 && p));
 
+	char *t;
     int cq, aa, ttl;
     AvahiDnsPacket *reply = NULL;
     AvahiRecord *r = avahi_record_list_next(s->record_list, NULL, NULL, NULL);
@@ -582,8 +583,12 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
 		aa = 0;
 		ttl = 0;
 
-		if (r)
+		if (r) {
 			add_aux_records_to_list(s, i, r, 1);
+			//t = avahi_record_to_string(r);
+			//avahi_log_debug("Using record [%s] in response to hostname resolve request", t);
+			//avahi_free(t);
+		}
 
 		for (;;) {
 
@@ -630,7 +635,6 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
 						 * nothing we can do. The RR just doesn't
 						 * fit in. Let's ignore it. */
 
-						char *t;
 						avahi_dns_packet_unref(reply);
 						reply = NULL;
 						t = avahi_record_to_string(r);
@@ -644,10 +648,6 @@ static void host_name_generate_response(AvahiServer *s, AvahiInterface *i, Avahi
 
 				avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS,
 						avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_FLAGS) | AVAHI_DNS_FLAG_TC);
-			} else {
-				/* No records, so NXDOMAIN. */
-				avahi_dns_packet_set_field(reply, AVAHI_DNS_FIELD_FLAGS,
-						avahi_dns_packet_get_field(reply, AVAHI_DNS_FIELD_FLAGS) | 3);
 			}
 
             if (i->protocol == AVAHI_PROTO_INET && s->fd_ipv4_dns >= 0)
@@ -706,10 +706,15 @@ static void host_name_resolver_callback(
     assert(interface);
 
     if (event == AVAHI_RESOLVER_FOUND) {
+		//avahi_log_debug("Host name resolved - %s => %s", hnrd->key->name, hostname);
         if (avahi_server_add_external_address(hnrd->s, NULL, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, hostname, a) == AVAHI_OK) {
-	        for (AvahiEntry *e = avahi_hashmap_lookup(hnrd->s->external_entries_by_key, hnrd->key); e; e = e->by_key_next)
-				if (!e->dead)
-					avahi_server_prepare_response(hnrd->s, interface, e, 1, 0);
+			char *name = hnrd->key->name;
+			hnrd->key->name = hostname;
+			for (AvahiEntry *e = avahi_hashmap_lookup(hnrd->s->external_entries_by_key, hnrd->key); e; e = e->by_key_next) {
+			if (!e->dead)
+				avahi_server_prepare_response(hnrd->s, interface, e, 1, 0);
+			}
+			hnrd->key->name = name;
 		}
     }
 
@@ -1209,10 +1214,10 @@ static void dispatch_packet(AvahiServer *s, AvahiDnsPacket *p, int fd, const Ava
 		} else
 #endif
 		{
-//		    if (avahi_address_is_local(s->monitor, src_address)) {
-//		        char t2[AVAHI_ADDRESS_STR_MAX];
-//		    	avahi_log_debug("Received local query to %s (host %s on interface '%s.%i').", avahi_address_snprint(t2, sizeof(t2), dst_address), avahi_address_snprint(t, sizeof(t), src_address), i->hardware->name, i->protocol);
-//		    }
+			//if (avahi_address_is_local(s->monitor, src_address)) {
+			//	char t2[AVAHI_ADDRESS_STR_MAX];
+			//	avahi_log_debug("Received local query to %s (host %s on interface '%s.%i').", avahi_address_snprint(t2, sizeof(t2), dst_address), avahi_address_snprint(t, sizeof(t), src_address), i->hardware->name, i->protocol);
+			//}
 			handle_query_packet(s, p, i, src_address, port, legacy_unicast, from_local_iface);
 		}
     } else if (fd == s->fd_ipv4 || fd == s->fd_ipv6) {

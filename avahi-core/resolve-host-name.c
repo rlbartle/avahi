@@ -82,6 +82,9 @@ static void finish(AvahiSHostNameResolver *r, AvahiResolverEvent event) {
                     abort();
             }
 
+            //char *t = avahi_record_to_string(r->address_record);
+            //avahi_log_debug("Host name resolved - %s => [%s]", r->host_name, t);
+            //avahi_free(t);
             r->callback(r, r->interface, r->protocol, AVAHI_RESOLVER_FOUND, r->address_record->key->name, &a, r->flags, r->userdata);
             break;
 
@@ -89,6 +92,7 @@ static void finish(AvahiSHostNameResolver *r, AvahiResolverEvent event) {
 
         case AVAHI_RESOLVER_FAILURE:
 
+            //avahi_log_debug("Host name failed to resolve - %s", r->host_name);
             r->callback(r, r->interface, r->protocol, event, r->host_name, NULL, r->flags, r->userdata);
             break;
     }
@@ -183,9 +187,8 @@ static void record_browser_callback(
             /* Ignore - exception being the local host name */
 
             if (event == AVAHI_BROWSER_ALL_FOR_NOW &&
-                    r->server->host_name_fqdn && strcmp(r->server->host_name_fqdn, r->host_name) == 0) {
+                    r->server->host_name_fqdn && strcasecmp(r->server->host_name_fqdn, r->host_name) == 0) {
                 avahi_log_debug("Host name lookup matching the name of the localhost - resolving with local address");
-
                 if (!r->address_record) {
                     r->flags = rr->flags;
 
@@ -230,7 +233,6 @@ static void record_browser_callback(
         case AVAHI_BROWSER_FAILURE:
 
             /* Stop browsers */
-
             if (r->record_browser_aaaa)
                 avahi_s_record_browser_free(r->record_browser_aaaa);
             if (r->record_browser_a)

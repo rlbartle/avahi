@@ -282,6 +282,8 @@ static void lookup_multicast_callback(
                 if (avahi_server_is_record_local(b->server, interface, protocol, r))
                     flags |= AVAHI_LOOKUP_RESULT_LOCAL;
 
+                //avahi_log_debug("AVAHI_BROWSER_NEW %X (local %d) - %s",
+                //		r->key->type, flags & AVAHI_LOOKUP_RESULT_LOCAL, r->key->name);
                 b->callback(b, interface, protocol, event, r, flags, b->userdata);
             }
             break;
@@ -303,6 +305,7 @@ static void lookup_multicast_callback(
 
         case AVAHI_BROWSER_ALL_FOR_NOW:
 
+            //if (r)  avahi_log_debug("AVAHI_BROWSER_ALL_FOR_NOW %X - %s", r->key->type, r->key->name);
             b->callback(b, AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, event, NULL, flags, b->userdata);
             break;
 
@@ -389,8 +392,10 @@ static int lookup_go(AvahiSRBLookup *l) {
         if ((l->flags & AVAHI_LOOKUP_USE_MULTICAST) || n == 0)
             /* We do no start a query if the cache contained entries and we're on wide area */
 
-            if (lookup_start(l) < 0)
+            if (lookup_start(l) < 0) {
+                //avahi_log_debug("lookup_start failed - %s", l->key ? l->key->name : "");
                 n = -1;
+            }
     }
 
     lookup_unref(l);
@@ -564,7 +569,6 @@ AvahiSRecordBrowser *avahi_s_record_browser_prepare(
     return b;
 }
 
-
 void avahi_s_record_browser_start_query(AvahiSRecordBrowser *b) {
     assert(b);
     assert(!b->dead);
@@ -577,7 +581,6 @@ void avahi_s_record_browser_start_query(AvahiSRecordBrowser *b) {
     /* The currently cached entries are scanned a bit later, and than we will start querying, too */
     avahi_s_record_browser_restart(b);
 }
-
 
 void avahi_s_record_browser_free(AvahiSRecordBrowser *b) {
     assert(b);

@@ -1122,6 +1122,8 @@ static void signal_callback(AvahiWatch *watch, AVAHI_GCC_UNUSED int fd, AVAHI_GC
 
         case SIGHUP:
             avahi_log_info("Got SIGHUP, reloading.");
+            /* Sleep for a two and a half seconds to avoid potential races. */
+            usleep(2500000);
             if (reload_config() == 0) {
                 avahi_server_set_host_name(avahi_server, config.server_config.host_name);
                 avahi_service_check_reflector(avahi_server, &config.server_config);

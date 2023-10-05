@@ -56,7 +56,7 @@ void avahi_dns_packet_cleanup_name_table(AvahiDnsPacket *p);
 
 uint8_t *avahi_dns_packet_append_uint16(AvahiDnsPacket *p, uint16_t v);
 uint8_t *avahi_dns_packet_append_uint32(AvahiDnsPacket *p, uint32_t v);
-uint8_t *avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name);
+uint8_t *avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name, int case_sensitive);
 uint8_t *avahi_dns_packet_append_bytes(AvahiDnsPacket  *p, const void *d, size_t l);
 uint8_t* avahi_dns_packet_append_key(AvahiDnsPacket *p, AvahiKey *k, int unicast_response);
 uint8_t* avahi_dns_packet_append_record(AvahiDnsPacket *p, AvahiRecord *r, int cache_flush, unsigned max_ttl);

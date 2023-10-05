@@ -49,10 +49,10 @@ int main(AVAHI_GCC_UNUSED int argc, AVAHI_GCC_UNUSED char *argv[]) {
 
     p = avahi_dns_packet_new(0);
 
-    assert(avahi_dns_packet_append_name(p, a = "Ahello.hello.hello.de."));
-    assert(avahi_dns_packet_append_name(p, b = "Bthis is a test.hello.de."));
-    assert(avahi_dns_packet_append_name(p, c = "Cthis\\.is\\.a\\.test\\.with\\.dots.hello.de."));
-    assert(avahi_dns_packet_append_name(p, d = "Dthis\\\\is another test.hello.de."));
+    assert(avahi_dns_packet_append_name(p, a = "Ahello.hello.hello.de.", 1));
+    assert(avahi_dns_packet_append_name(p, b = "Bthis is a test.hello.de.", 1));
+    assert(avahi_dns_packet_append_name(p, c = "Cthis\\.is\\.a\\.test\\.with\\.dots.hello.de.", 1));
+    assert(avahi_dns_packet_append_name(p, d = "Dthis\\\\is another test.hello.de.", 1));
 
     avahi_hexdump(AVAHI_DNS_PACKET_DATA(p), p->size);
 

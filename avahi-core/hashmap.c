@@ -152,7 +152,6 @@ int avahi_hashmap_insert(AvahiHashmap *m, void *key, void *value) {
     return 0;
 }
 
-
 int avahi_hashmap_replace(AvahiHashmap *m, void *key, void *value) {
     unsigned idx;
     Entry *e;

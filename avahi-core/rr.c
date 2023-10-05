@@ -418,7 +418,6 @@ int avahi_record_equal_no_ttl(const AvahiRecord *a, const AvahiRecord *b) {
         rdata_equal(a, b);
 }
 
-
 AvahiRecord *avahi_record_copy(AvahiRecord *r) {
     AvahiRecord *copy;
 
@@ -487,7 +486,6 @@ fail:
 
     return NULL;
 }
-
 
 size_t avahi_key_get_estimate_size(AvahiKey *k) {
     assert(k);

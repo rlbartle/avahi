@@ -98,7 +98,7 @@ char *avahi_get_host_name(char *ret_s, size_t size) {
     } else
         *ret_s = 0;
 
-    if (strcmp(ret_s, "localhost") == 0 || strncmp(ret_s, "localhost.", 10) == 0) {
+    if (strcasecmp(ret_s, "localhost") == 0 || strncasecmp(ret_s, "localhost.", 10) == 0) {
         *ret_s = 0;
         avahi_log_warn("System host name is set to 'localhost'. This is not a suitable mDNS host name, looking for alternatives.");
     }
@@ -164,7 +164,7 @@ int avahi_binary_domain_cmp(const char *a, const char *b) {
         p = avahi_unescape_label(&b, cb, sizeof(cb));
         assert(p);
 
-        if ((r = strcmp(ca, cb)))
+        if ((r = strcasecmp(ca, cb)))
             return r;
 
         if (!*a && !*b)

@@ -39,6 +39,7 @@
 
 #include "dns.h"
 #include "log.h"
+#include "util.h"
 
 AvahiDnsPacket* avahi_dns_packet_new(unsigned mtu) {
     AvahiDnsPacket *p;
@@ -180,9 +181,10 @@ void avahi_dns_packet_cleanup_name_table(AvahiDnsPacket *p) {
         avahi_hashmap_foreach(p->name_table, name_table_cleanup, p);
 }
 
-uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name) {
+uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name, int case_sensitive) {
     uint8_t *d, *saved_ptr = NULL;
     size_t saved_size;
+    char *pname = NULL;
 
     assert(p);
     assert(name);
@@ -192,12 +194,17 @@ uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name) {
 
     while (*name) {
         uint8_t* prev;
-        const char *pname;
-        char label[64], *u;
+        char label[64];
+
+        if (!(pname = avahi_strdup(name))) {
+			avahi_log_error("avahi_strdup() failed.");
+			break;
+		} else if (!case_sensitive) {
+			avahi_strdown(pname);
+		}
 
         /* Check whether we can compress this name. */
-
-        if (p->name_table && (prev = avahi_hashmap_lookup(p->name_table, name))) {
+        if (p->name_table && (prev = avahi_hashmap_lookup(p->name_table, pname))) {
             unsigned idx;
 
             assert(prev >= AVAHI_DNS_PACKET_DATA(p));
@@ -208,15 +215,15 @@ uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name) {
             if (idx < 0x4000) {
                 uint8_t *t;
                 if (!(t = (uint8_t*) avahi_dns_packet_extend(p, sizeof(uint16_t))))
-                    return NULL;
+                    goto fail;
 
-		t[0] = (uint8_t) ((0xC000 | idx) >> 8);
-		t[1] = (uint8_t) idx;
+				t[0] = (uint8_t) ((0xC000 | idx) >> 8);
+				t[1] = (uint8_t) idx;
+				if (!case_sensitive)
+					avahi_free(pname);
                 return saved_ptr;
             }
         }
-
-        pname = name;
 
         if (!(avahi_unescape_label(&name, label, sizeof(label))))
             goto fail;
@@ -224,14 +231,15 @@ uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name) {
         if (!(d = avahi_dns_packet_append_string(p, label)))
             goto fail;
 
-        if (!p->name_table)
-            /* This works only for normalized domain names */
+        if (!p->name_table) {
+            /* This works only for normalized domain names. Can't use
+             * avahi_domain_hash/avahi_domain_equal because the input may be for TXT records which
+             * are case sensitive */
             p->name_table = avahi_hashmap_new(avahi_string_hash, avahi_string_equal, avahi_free, NULL);
+        }
 
-        if (!(u = avahi_strdup(pname)))
-            avahi_log_error("avahi_strdup() failed.");
-        else
-            avahi_hashmap_insert(p->name_table, u, d);
+        avahi_hashmap_insert(p->name_table, pname, d);
+        pname = NULL;
     }
 
     if (!(d = avahi_dns_packet_extend(p, 1)))
@@ -242,6 +250,8 @@ uint8_t* avahi_dns_packet_append_name(AvahiDnsPacket *p, const char *name) {
     return saved_ptr;
 
 fail:
+	if (!case_sensitive)
+		avahi_free(pname);
     p->size = saved_size;
     avahi_dns_packet_cleanup_name_table(p);
 
@@ -701,6 +711,10 @@ AvahiKey* avahi_dns_packet_consume_key(AvahiDnsPacket *p, int *ret_unicast_respo
     return k;
 }
 
+static int is_key_case_sensitive(AvahiKey *key) {
+	return key->type == AVAHI_DNS_TYPE_TXT ? 1 : 0;
+}
+
 uint8_t* avahi_dns_packet_append_key(AvahiDnsPacket *p, AvahiKey *k, int unicast_response) {
     uint8_t *t;
     size_t size;
@@ -710,7 +724,7 @@ uint8_t* avahi_dns_packet_append_key(AvahiDnsPacket *p, AvahiKey *k, int unicast
 
     size = p->size;
 
-    if (!(t = avahi_dns_packet_append_name(p, k->name)) ||
+    if (!(t = avahi_dns_packet_append_name(p, k->name, is_key_case_sensitive(k))) ||
         !avahi_dns_packet_append_uint16(p, k->type) ||
         !avahi_dns_packet_append_uint16(p, k->clazz | (unicast_response ? AVAHI_DNS_UNICAST_RESPONSE : 0))) {
         p->size = size;
@@ -732,7 +746,7 @@ static int append_rdata(AvahiDnsPacket *p, AvahiRecord *r) {
         case AVAHI_DNS_TYPE_CNAME:
         case AVAHI_DNS_TYPE_NS:
 
-            if (!(avahi_dns_packet_append_name(p, r->data.ptr.name)))
+            if (!(avahi_dns_packet_append_name(p, r->data.ptr.name, 0)))
                 return -1;
 
             break;
@@ -742,7 +756,7 @@ static int append_rdata(AvahiDnsPacket *p, AvahiRecord *r) {
             if (!avahi_dns_packet_append_uint16(p, r->data.srv.priority) ||
                 !avahi_dns_packet_append_uint16(p, r->data.srv.weight) ||
                 !avahi_dns_packet_append_uint16(p, r->data.srv.port) ||
-                !avahi_dns_packet_append_name(p, r->data.srv.name))
+                !avahi_dns_packet_append_name(p, r->data.srv.name, 0))
                 return -1;
 
             break;
@@ -805,7 +819,7 @@ uint8_t* avahi_dns_packet_append_record(AvahiDnsPacket *p, AvahiRecord *r, int c
 
     size = p->size;
 
-    if (!(t = avahi_dns_packet_append_name(p, r->key->name)) ||
+    if (!(t = avahi_dns_packet_append_name(p, r->key->name, is_key_case_sensitive(r->key))) ||
         !avahi_dns_packet_append_uint16(p, r->key->type) ||
         !avahi_dns_packet_append_uint16(p, cache_flush ? (r->key->clazz | AVAHI_DNS_CACHE_FLUSH) : (r->key->clazz &~ AVAHI_DNS_CACHE_FLUSH)) ||
         !avahi_dns_packet_append_uint32(p, (max_ttl && r->ttl > max_ttl) ? max_ttl : r->ttl) ||
