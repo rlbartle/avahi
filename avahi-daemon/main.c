@@ -1233,7 +1233,6 @@ static int run_server(DaemonConfig *c) {
             avahi_log_info("Successfully called chroot().");
             chdir("/");
         }
-#endif
 
 #ifdef HANDLE_DNS_REQUESTS_IN_LOCAL_DOMAIN
         if (avahi_caps_reduce3() < 0) {
@@ -1246,6 +1245,7 @@ static int run_server(DaemonConfig *c) {
             goto finish;
         }
         avahi_log_info("Successfully dropped remaining capabilities.");
+#endif
 #endif
     }
 
@@ -1675,14 +1675,18 @@ int main(int argc, char *argv[]) {
             goto finish;
 
         if (config.drop_root) {
+#ifdef ENABLE_CHROOT
             if (avahi_caps_reduce() < 0)
                 goto finish;
+#endif
 
             if (drop_root() < 0)
                 goto finish;
 
+#ifdef ENABLE_CHROOT
             if (avahi_caps_reduce2() < 0)
                 goto finish;
+#endif
         }
         
         /* We may get signalled to reload / dump data before signal

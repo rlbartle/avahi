@@ -22,6 +22,7 @@
 #endif
 
 #include <stdlib.h>
+#include <string.h>
 
 #include <avahi-common/domain.h>
 #include <avahi-common/timeval.h>
